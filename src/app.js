@@ -1,5 +1,5 @@
 /**
- * Compound — presentation layer
+ * Bootstraps — presentation layer
  */
 
 import {
@@ -148,7 +148,7 @@ function render() {
     <aside class="sidebar">
       <div class="brand">
         <h1>${APP_NAME}</h1>
-        <p>Hunt · learn · compound</p>
+        <p>Hunt · learn · climb</p>
       </div>
       ${navBtn('dashboard', 'Dashboard')}
       ${navBtn('digest', 'Recommended')}
@@ -205,7 +205,7 @@ function supportBlock() {
   const s = state.settings || {};
   return `
     <div class="support-card" id="support">
-      <h3>If Compound helps you get hired</h3>
+      <h3>If Bootstraps helps you get hired</h3>
       <p>${esc(
         s.supportNote ||
           'This tool is free. If it helps you land a job, get interviews, or sharpen your resume — please donate. It funds continued development.'
@@ -233,7 +233,7 @@ function viewTitle() {
     profile: 'Profile & targeting',
     settings: 'Settings',
   };
-  return t[state.view] || 'Compound';
+  return t[state.view] || 'Bootstraps';
 }
 
 // ── Dashboard ──────────────────────────────────────────────
@@ -563,7 +563,7 @@ function renderApplications(root, actions) {
   `;
   $('#a-new').onclick = () => openAppEditor(null);
   $('#a-export').onclick = () => {
-    downloadText('compound-applications.md', applicationsToMarkdown(state.applications), 'text/markdown');
+    downloadText('bootstraps-applications.md', applicationsToMarkdown(state.applications), 'text/markdown');
     toast('Exported', 'ok');
   };
   root.querySelectorAll('[data-st]').forEach((btn) => {
@@ -669,7 +669,7 @@ function openAppEditor(id) {
     if (payload.status === 'Offer') {
       setTimeout(
         () =>
-          toast('Offer logged — if Compound helped, please donate (sidebar ♥)', 'ok'),
+          toast('Offer logged — if Bootstraps helped, please donate (sidebar ♥)', 'ok'),
         700
       );
     }
@@ -798,7 +798,7 @@ async function prepareForJob(jobId) {
         url: job.url,
         domain,
         status: 'Applied',
-        notes: 'Prepared via Compound',
+        notes: 'Prepared via Bootstraps',
         tailoredResume: $('#p-resume', backdrop).value,
         coverNote: $('#p-note', backdrop).value,
         resumeBase: 'working',
@@ -904,7 +904,7 @@ function renderResumes(root, actions) {
   };
   $('#r-export').onclick = () => {
     downloadText(
-      'compound-resumes.md',
+      'bootstraps-resumes.md',
       resumesToMarkdown(state.master, state.working),
       'text/markdown'
     );
@@ -1225,7 +1225,7 @@ function renderSettings(root, actions) {
   };
   $('#s-export').onclick = async () => {
     const data = await exportAllData();
-    downloadJson('compound-export.json', data);
+    downloadJson('bootstraps-export.json', data);
     toast('Exported', 'ok');
   };
 }
