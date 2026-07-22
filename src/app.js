@@ -4,6 +4,7 @@
 
 import {
   APP_NAME,
+  APP_TAGLINE,
   APPLICATION_STATUSES,
   DIGEST_SIZE,
   REMOTIVE_CATEGORIES,
@@ -258,6 +259,14 @@ function renderDashboard(root, actions) {
   const digest = buildDigest(state.jobs, appliedJobIds(), DIGEST_SIZE);
 
   root.innerHTML = `
+    <section class="hero">
+      <img class="hero-logo" src="./public/bootstraps-logo.jpg" alt="Someone literally pulling themselves up by their bootstraps" />
+      <div class="hero-copy">
+        <p class="hero-kicker">${esc(APP_NAME)}</p>
+        <h2 class="hero-tagline">${esc(APP_TAGLINE)}</h2>
+        <p class="hero-sub muted">Local-first job hunt. Dual resumes. Rejection turns into climb fuel.</p>
+      </div>
+    </section>
     ${
       !resumeBody().trim()
         ? `<div class="banner warn">
@@ -285,25 +294,16 @@ function renderDashboard(root, actions) {
       <div class="stat"><div class="n">${state.jobs.length}</div><div class="l">Jobs scored</div></div>
       <div class="stat"><div class="n">${digest.length}</div><div class="l">Digest picks</div></div>
     </div>
-    <div class="grid-2">
-      <div class="card">
-        <h3>This week’s play</h3>
-        <ol class="muted" style="margin:0;padding-left:1.2rem;line-height:1.65">
-          <li>Fetch or add roles that match your floor (~$${state.profile.salaryFloorUsd || 2000}/mo remote)</li>
-          <li>Work the <strong>Recommended</strong> digest (4–8 high-fit)</li>
-          <li>Log outcomes honestly — ghosts count</li>
-          <li>When a domain flags, run <strong>Deep Analysis</strong> and update Working Resume</li>
-        </ol>
-      </div>
-      <div class="card">
-        <h3>Resume status</h3>
+    <div class="card resume-status-card">
+      <h3>Resume status</h3>
+      <div class="resume-status-row">
         <p class="muted" style="margin:0">
           <span class="tag master">Master</span> ${state.master?.body ? `${state.master.body.length} chars · ${formatDate(state.master.updatedAt)}` : 'empty'}
         </p>
-        <p class="muted" style="margin:0.5rem 0 0">
+        <p class="muted" style="margin:0">
           <span class="tag working">Working</span> ${state.working?.body ? `${state.working.body.length} chars · ${formatDate(state.working.updatedAt)}` : 'empty'}
         </p>
-        <p class="dim" style="margin:0.75rem 0 0">${state.history.length} improvement events logged</p>
+        <p class="dim" style="margin:0">${state.history.length} improvement events logged</p>
       </div>
     </div>
     <h3 style="font-family:var(--serif);margin:1.25rem 0 0.6rem">Top matches</h3>
