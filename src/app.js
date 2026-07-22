@@ -57,6 +57,8 @@ let state = {
   jobQ: '',
   appFilter: 'all',
   appDomain: '',
+  /** @type {'pipeline' | 'list'} */
+  appView: 'pipeline',
   busy: false,
 };
 
@@ -656,35 +658,57 @@ function openManualJob() {
 
 function renderApplications(root, actions) {
   actions.innerHTML = `
+    <button type="button" class="btn ${state.appView === 'pipeline' ? 'primary' : ''}" id="a-pipe">Pipeline</button>
+    <button type="button" class="btn ${state.appView === 'list' ? 'primary' : ''}" id="a-list">List</button>
     <button type="button" class="btn" id="a-export">Export MD</button>
     <button type="button" class="btn primary" id="a-new">Log application</button>
   `;
   let apps = state.applications;
-  if (state.appFilter !== 'all') apps = apps.filter((a) => a.status === state.appFilter);
   if (state.appDomain) apps = apps.filter((a) => a.domain === state.appDomain);
+  if (state.appView === 'list' && state.appFilter !== 'all') {
+    apps = apps.filter((a) => a.status === state.appFilter);
+  }
 
-  root.innerHTML = `
+  const body =
+    state.appView === 'pipeline'
+      ? pipelineHtml(apps)
+      : `
     <div class="filter-row">
       <button type="button" class="chip ${state.appFilter === 'all' ? 'active' : ''}" data-st="all">All</button>
       ${APPLICATION_STATUSES.map(
         (s) =>
           `<button type="button" class="chip ${state.appFilter === s ? 'active' : ''}" data-st="${esc(s)}">${esc(s)}</button>`
       ).join('')}
+    </div>
+    <div class="app-list">
+      ${
+        apps.length
+          ? apps.map((a) => appCardHtml(a)).join('')
+          : `<div class="empty"><h3>No applications logged</h3><p>Log from a job card or add manually.</p></div>`
+      }
+    </div>`;
+
+  root.innerHTML = `
+    <div class="filter-row">
       <select id="a-dom" style="max-width:11rem">
         <option value="">All domains</option>
         ${(state.settings.domains || [])
           .map((d) => `<option value="${esc(d)}" ${state.appDomain === d ? 'selected' : ''}>${esc(d)}</option>`)
           .join('')}
       </select>
+      <span class="dim">${apps.length} shown · drag cards across columns in Pipeline</span>
     </div>
-    <div class="app-list">
-      ${
-        apps.length
-          ? apps.map((a) => appCardHtml(a)).join('')
-          : `<div class="empty"><h3>No applications logged</h3><p>Log from a job card or add manually. Outcomes feed the learning loop.</p></div>`
-      }
-    </div>
+    ${body}
   `;
+
+  $('#a-pipe').onclick = () => {
+    state.appView = 'pipeline';
+    render();
+  };
+  $('#a-list').onclick = () => {
+    state.appView = 'list';
+    render();
+  };
   $('#a-new').onclick = () => openAppEditor(null);
   $('#a-export').onclick = () => {
     downloadText('bootstraps-applications.md', applicationsToMarkdown(state.applications), 'text/markdown');
@@ -700,23 +724,64 @@ function renderApplications(root, actions) {
     state.appDomain = e.target.value;
     render();
   };
-  root.querySelectorAll('[data-edit-app]').forEach((btn) => {
-    btn.onclick = () => openAppEditor(btn.dataset.editApp);
-  });
-  root.querySelectorAll('[data-del-app]').forEach((btn) => {
-    btn.onclick = async () => {
-      if (!confirm('Delete this application log?')) return;
-      await deleteApplication(btn.dataset.delApp);
-      await reloadAll();
-      render();
-    };
-  });
+  bindAppCardActions(root);
+  if (state.appView === 'pipeline') bindPipelineDnD(root);
+}
+
+function pipelineHtml(apps) {
+  if (!state.applications.length) {
+    return `<div class="empty"><h3>No applications yet</h3><p>Log from a job card — then drag across the board as outcomes change.</p></div>`;
+  }
+  const cols = APPLICATION_STATUSES;
+  return `
+    <div class="pipeline">
+      ${cols
+        .map((status) => {
+          const colApps = apps.filter((a) => a.status === status);
+          return `
+        <section class="pipe-col" data-status="${esc(status)}">
+          <header class="pipe-col-head">
+            <h3>${esc(status)}</h3>
+            <span class="dim">${colApps.length}</span>
+          </header>
+          <div class="pipe-col-body" data-drop-status="${esc(status)}">
+            ${
+              colApps.length
+                ? colApps.map((a) => pipelineCardHtml(a)).join('')
+                : `<p class="pipe-empty dim">Drop here</p>`
+            }
+          </div>
+        </section>`;
+        })
+        .join('')}
+    </div>`;
+}
+
+function pipelineCardHtml(a) {
+  const jdLen = (a.jobDescription || '').trim().length;
+  return `
+    <article class="pipe-card" draggable="true" data-app-id="${a.id}">
+      <h4>${esc(a.title)}</h4>
+      <div class="job-meta">${esc(a.company)}</div>
+      <div class="pipe-card-meta">
+        <span class="tag">${esc(a.domain)}</span>
+        ${jdLen ? '<span class="tag working">JD</span>' : '<span class="tag">No JD</span>'}
+      </div>
+      <div class="pipe-card-actions">
+        <button type="button" class="btn ghost" data-edit-app="${a.id}">Edit</button>
+        <select class="pipe-status" data-status-app="${a.id}" title="Move">
+          ${APPLICATION_STATUSES.map(
+            (s) => `<option value="${esc(s)}" ${a.status === s ? 'selected' : ''}>${esc(s)}</option>`
+          ).join('')}
+        </select>
+      </div>
+    </article>`;
 }
 
 function appCardHtml(a) {
   const jdLen = (a.jobDescription || '').trim().length;
   return `
-    <article class="job-card">
+    <article class="job-card" data-app-id="${a.id}">
       <div>
         <h3>${esc(a.title)}</h3>
         <div class="job-meta">${esc(a.company)} · ${formatDate(a.appliedAt)} · base: ${esc(a.resumeBase || 'working')}</div>
@@ -729,10 +794,87 @@ function appCardHtml(a) {
       </div>
       <div class="row-actions" style="flex-direction:column;align-items:flex-end">
         ${a.url ? `<a class="btn ghost" href="${esc(a.url)}" target="_blank" rel="noopener">URL</a>` : ''}
+        <select class="pipe-status" data-status-app="${a.id}">
+          ${APPLICATION_STATUSES.map(
+            (s) => `<option value="${esc(s)}" ${a.status === s ? 'selected' : ''}>${esc(s)}</option>`
+          ).join('')}
+        </select>
         <button type="button" class="btn" data-edit-app="${a.id}">Update</button>
         <button type="button" class="btn danger" data-del-app="${a.id}">Delete</button>
       </div>
     </article>`;
+}
+
+function bindAppCardActions(root) {
+  root.querySelectorAll('[data-edit-app]').forEach((btn) => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      openAppEditor(btn.dataset.editApp);
+    };
+  });
+  root.querySelectorAll('[data-del-app]').forEach((btn) => {
+    btn.onclick = async () => {
+      if (!confirm('Delete this application log?')) return;
+      await deleteApplication(btn.dataset.delApp);
+      await reloadAll();
+      render();
+    };
+  });
+  root.querySelectorAll('[data-status-app]').forEach((sel) => {
+    sel.onchange = async (e) => {
+      e.stopPropagation();
+      const id = sel.dataset.statusApp;
+      const status = sel.value;
+      await updateApplication(id, { status });
+      await reloadAll();
+      toast(`→ ${status}`, 'ok');
+      if (status === 'Offer') {
+        setTimeout(() => toast('Offer — if Bootstraps helped, please donate (sidebar ♥)', 'ok'), 600);
+      }
+      render();
+    };
+  });
+}
+
+function bindPipelineDnD(root) {
+  let dragId = null;
+  root.querySelectorAll('.pipe-card').forEach((card) => {
+    card.addEventListener('dragstart', (e) => {
+      dragId = card.dataset.appId;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', dragId);
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      dragId = null;
+      root.querySelectorAll('.pipe-col-body').forEach((c) => c.classList.remove('drag-over'));
+    });
+  });
+  root.querySelectorAll('.pipe-col-body').forEach((col) => {
+    col.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      col.classList.add('drag-over');
+    });
+    col.addEventListener('dragleave', () => col.classList.remove('drag-over'));
+    col.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      col.classList.remove('drag-over');
+      const id = e.dataTransfer.getData('text/plain') || dragId;
+      const status = col.dataset.dropStatus;
+      if (!id || !status) return;
+      const app = state.applications.find((a) => a.id === id);
+      if (!app || app.status === status) return;
+      await updateApplication(id, { status });
+      await reloadAll();
+      toast(`${app.title.slice(0, 32)} → ${status}`, 'ok');
+      if (status === 'Offer') {
+        setTimeout(() => toast('Offer — if Bootstraps helped, please donate (sidebar ♥)', 'ok'), 600);
+      }
+      render();
+    });
+  });
 }
 
 function openAppEditor(id) {
@@ -1110,34 +1252,113 @@ async function analyzeDomain(domain) {
     return;
   }
 
+  /** @type {{ id: string, area: string, change: string, why: string, status: 'pending'|'accepted'|'rejected' }[]} */
+  let suggestions = [];
+
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   backdrop.innerHTML = `
     <div class="modal wide">
       <h2>Analyze domain failures</h2>
       <p class="muted"><strong>${esc(domain)}</strong> · ${apps.length} application(s)</p>
-      <p class="dim">Uses <strong>Deep</strong> model: ${esc(state.settings.deepModel || AI_DEFAULTS.deepModel)} — higher quality, higher cost.</p>
+      <p class="dim">Deep model: ${esc(state.settings.deepModel || AI_DEFAULTS.deepModel)}. Accept or reject each suggestion before applying to Working.</p>
       <div class="modal-actions">
-        <button type="button" class="btn ghost" id="an-cancel">Cancel</button>
+        <button type="button" class="btn ghost" id="an-cancel">Close</button>
         <button type="button" class="btn primary" id="an-run">Run deep analysis</button>
       </div>
       <div id="an-out" hidden style="margin-top:1rem">
         <div class="banner"><h3>Summary</h3><p class="muted" id="an-summary" style="margin:0"></p></div>
         <div class="field"><label>Likely reasons</label><div class="prose" id="an-reasons"></div></div>
-        <div class="field"><label>Actionable adjustments</label><div class="prose" id="an-actions"></div></div>
-        <div class="field"><label>Revised sections</label><textarea id="an-sections" rows="10"></textarea></div>
-        <div class="field"><label>Full working draft (if provided)</label><textarea id="an-full" rows="12"></textarea></div>
-        <div class="modal-actions">
-          <button type="button" class="btn ghost" id="an-discard">Discard</button>
-          <button type="button" class="btn" id="an-sections-only">Accept sections → append note</button>
-          <button type="button" class="btn primary" id="an-accept">Accept full draft into Working</button>
+        <div class="sug-head">
+          <h3 style="font-family:var(--serif);margin:0;font-size:1.05rem">Suggestions</h3>
+          <span class="dim" id="sug-count"></span>
         </div>
+        <div id="an-suggestions" class="sug-list"></div>
+        <div class="modal-actions" style="justify-content:flex-start;margin-top:0.75rem">
+          <button type="button" class="btn" id="an-accept-all">Accept all pending</button>
+          <button type="button" class="btn" id="an-reject-all">Reject all pending</button>
+          <button type="button" class="btn primary" id="an-apply-accepted">Apply accepted → Working</button>
+        </div>
+        <details class="an-advanced" style="margin-top:1.25rem">
+          <summary class="dim">Advanced: full draft & section block</summary>
+          <div class="field" style="margin-top:0.75rem"><label>Revised sections (bulk)</label><textarea id="an-sections" rows="8"></textarea></div>
+          <div class="field"><label>Full working draft</label><textarea id="an-full" rows="10"></textarea></div>
+          <div class="modal-actions">
+            <button type="button" class="btn" id="an-sections-only">Append sections to Working</button>
+            <button type="button" class="btn primary" id="an-accept">Replace Working with full draft</button>
+          </div>
+        </details>
       </div>
     </div>`;
   document.body.appendChild(backdrop);
   const close = () => backdrop.remove();
   $('#an-cancel', backdrop).onclick = close;
-  $('#an-discard', backdrop)?.addEventListener('click', close);
+
+  function renderSuggestions() {
+    const host = $('#an-suggestions', backdrop);
+    const pending = suggestions.filter((s) => s.status === 'pending').length;
+    const accepted = suggestions.filter((s) => s.status === 'accepted').length;
+    const rejected = suggestions.filter((s) => s.status === 'rejected').length;
+    $('#sug-count', backdrop).textContent = `${accepted} accepted · ${rejected} rejected · ${pending} pending`;
+    if (!suggestions.length) {
+      host.innerHTML = `<p class="dim">No structured suggestions returned. Use advanced section/draft if available.</p>`;
+      return;
+    }
+    host.innerHTML = suggestions
+      .map(
+        (s) => `
+      <article class="sug-card status-${s.status}" data-sug="${s.id}">
+        <div class="sug-card-top">
+          <span class="tag">${esc(s.area || 'other')}</span>
+          <span class="tag ${s.status === 'accepted' ? 'working' : s.status === 'rejected' ? '' : 'flag'}">${esc(s.status)}</span>
+        </div>
+        <label class="dim" style="font-size:0.72rem;text-transform:uppercase">Change</label>
+        <textarea class="sug-change" data-sug-change="${s.id}" rows="2" ${s.status === 'rejected' ? 'disabled' : ''}>${esc(s.change)}</textarea>
+        <p class="dim sug-why"><strong>Why:</strong> ${esc(s.why || '—')}</p>
+        <div class="row-actions">
+          ${
+            s.status === 'pending'
+              ? `<button type="button" class="btn primary" data-sug-accept="${s.id}">Accept</button>
+                 <button type="button" class="btn" data-sug-reject="${s.id}">Reject</button>`
+              : s.status === 'accepted'
+                ? `<button type="button" class="btn" data-sug-pending="${s.id}">Undo</button>
+                   <button type="button" class="btn" data-sug-reject="${s.id}">Reject</button>`
+                : `<button type="button" class="btn" data-sug-pending="${s.id}">Undo reject</button>
+                   <button type="button" class="btn primary" data-sug-accept="${s.id}">Accept</button>`
+          }
+        </div>
+      </article>`
+      )
+      .join('');
+
+    host.querySelectorAll('[data-sug-change]').forEach((ta) => {
+      ta.oninput = () => {
+        const s = suggestions.find((x) => x.id === ta.dataset.sugChange);
+        if (s) s.change = ta.value;
+      };
+    });
+    host.querySelectorAll('[data-sug-accept]').forEach((btn) => {
+      btn.onclick = () => {
+        const s = suggestions.find((x) => x.id === btn.dataset.sugAccept);
+        if (s) s.status = 'accepted';
+        renderSuggestions();
+      };
+    });
+    host.querySelectorAll('[data-sug-reject]').forEach((btn) => {
+      btn.onclick = () => {
+        const s = suggestions.find((x) => x.id === btn.dataset.sugReject);
+        if (s) s.status = 'rejected';
+        renderSuggestions();
+      };
+    });
+    host.querySelectorAll('[data-sug-pending]').forEach((btn) => {
+      btn.onclick = () => {
+        const s = suggestions.find((x) => x.id === btn.dataset.sugPending);
+        if (s) s.status = 'pending';
+        renderSuggestions();
+      };
+    });
+  }
 
   $('#an-run', backdrop).onclick = async () => {
     const { system, user } = domainFailurePrompt({
@@ -1164,12 +1385,20 @@ async function analyzeDomain(domain) {
       const parsed = parseModelJson(content);
       $('#an-out', backdrop).hidden = false;
       $('#an-summary', backdrop).textContent = parsed.summary || '';
-      $('#an-reasons', backdrop).textContent = (parsed.likelyReasons || []).map((r, i) => `${i + 1}. ${r}`).join('\n');
-      $('#an-actions', backdrop).textContent = (parsed.actionableAdjustments || [])
-        .map((a) => `• [${a.area}] ${a.change} — ${a.why}`)
+      $('#an-reasons', backdrop).textContent = (parsed.likelyReasons || [])
+        .map((r, i) => `${i + 1}. ${r}`)
         .join('\n');
+      suggestions = (parsed.actionableAdjustments || []).map((a, i) => ({
+        id: `s${i}-${Date.now()}`,
+        area: a.area || 'other',
+        change: a.change || '',
+        why: a.why || '',
+        status: 'pending',
+      }));
+      // If model returned no structured items but has revised sections, still useful
       $('#an-sections', backdrop).value = parsed.revisedSections || '';
       $('#an-full', backdrop).value = parsed.fullWorkingResumeDraft || '';
+      renderSuggestions();
       state.usage = await getUsageSummary();
     } catch (err) {
       toast(err.message || String(err), 'err');
@@ -1179,55 +1408,93 @@ async function analyzeDomain(domain) {
     }
   };
 
-  backdrop.addEventListener('click', async (e) => {
-    const t = e.target;
-    if (t?.id === 'an-discard') close();
-    if (t?.id === 'an-accept') {
-      const draft = $('#an-full', backdrop).value.trim();
-      if (!draft) {
-        toast('No full draft from model — use Accept sections or paste into Working manually', 'err');
-        return;
-      }
-      const before = state.working?.body || '';
-      await saveResume('working', draft);
-      await addResumeHistory({
-        reason: `Accepted deep analysis for domain ${domain}`,
-        domain,
-        applicationIds: apps.map((a) => a.id),
-        before,
-        after: draft,
-        source: 'deep_analysis',
-      });
-      close();
-      await reloadAll();
-      toast('Working resume updated', 'ok');
-      state.view = 'resumes';
-      render();
+  $('#an-accept-all', backdrop).onclick = () => {
+    suggestions.forEach((s) => {
+      if (s.status === 'pending') s.status = 'accepted';
+    });
+    renderSuggestions();
+  };
+  $('#an-reject-all', backdrop).onclick = () => {
+    suggestions.forEach((s) => {
+      if (s.status === 'pending') s.status = 'rejected';
+    });
+    renderSuggestions();
+  };
+
+  $('#an-apply-accepted', backdrop).onclick = async () => {
+    const accepted = suggestions.filter((s) => s.status === 'accepted' && s.change.trim());
+    if (!accepted.length) {
+      toast('Accept at least one suggestion first', 'err');
+      return;
     }
-    if (t?.id === 'an-sections-only') {
-      const sections = $('#an-sections', backdrop).value.trim();
-      if (!sections) {
-        toast('No revised sections', 'err');
-        return;
-      }
-      const before = state.working?.body || '';
-      const after = `${before.trim()}\n\n---\n## Proposed revisions (${domain})\n\n${sections}\n`;
-      await saveResume('working', after);
-      await addResumeHistory({
-        reason: `Appended revised sections for ${domain}`,
-        domain,
-        applicationIds: apps.map((a) => a.id),
-        before,
-        after,
-        source: 'deep_analysis_sections',
-      });
-      close();
-      await reloadAll();
-      toast('Sections appended to Working', 'ok');
-      state.view = 'resumes';
-      render();
+    const block = accepted
+      .map((s) => `### ${s.area}\n${s.change.trim()}\n\n_Why: ${s.why || '—'}_`)
+      .join('\n\n');
+    const before = state.working?.body || '';
+    const after = `${before.trim()}\n\n---\n## Accepted improvements (${domain})\n\n${block}\n`;
+    await saveResume('working', after);
+    await addResumeHistory({
+      reason: `Accepted ${accepted.length} suggestion(s) for ${domain}`,
+      domain,
+      applicationIds: apps.map((a) => a.id),
+      before,
+      after,
+      source: 'deep_analysis_suggestions',
+    });
+    close();
+    await reloadAll();
+    toast(`${accepted.length} suggestion(s) applied to Working`, 'ok');
+    state.view = 'resumes';
+    render();
+  };
+
+  $('#an-accept', backdrop).onclick = async () => {
+    const draft = $('#an-full', backdrop).value.trim();
+    if (!draft) {
+      toast('No full draft — accept individual suggestions or paste a draft', 'err');
+      return;
     }
-  });
+    if (!confirm('Replace entire Working Resume with this draft?')) return;
+    const before = state.working?.body || '';
+    await saveResume('working', draft);
+    await addResumeHistory({
+      reason: `Accepted full deep-analysis draft for ${domain}`,
+      domain,
+      applicationIds: apps.map((a) => a.id),
+      before,
+      after: draft,
+      source: 'deep_analysis',
+    });
+    close();
+    await reloadAll();
+    toast('Working resume replaced', 'ok');
+    state.view = 'resumes';
+    render();
+  };
+
+  $('#an-sections-only', backdrop).onclick = async () => {
+    const sections = $('#an-sections', backdrop).value.trim();
+    if (!sections) {
+      toast('No revised sections', 'err');
+      return;
+    }
+    const before = state.working?.body || '';
+    const after = `${before.trim()}\n\n---\n## Proposed revisions (${domain})\n\n${sections}\n`;
+    await saveResume('working', after);
+    await addResumeHistory({
+      reason: `Appended revised sections for ${domain}`,
+      domain,
+      applicationIds: apps.map((a) => a.id),
+      before,
+      after,
+      source: 'deep_analysis_sections',
+    });
+    close();
+    await reloadAll();
+    toast('Sections appended to Working', 'ok');
+    state.view = 'resumes';
+    render();
+  };
 }
 
 // ── Profile ────────────────────────────────────────────────
