@@ -1,0 +1,19 @@
+{
+  "name": "compound",
+  "version": "1.0.0",
+  "private": false,
+  "type": "module",
+  "description": "Local-first job hunt optimization — dual resumes, tracking, and rejection learning loops",
+  "license": "MIT",
+  "scripts": {
+    "start": "python3 -m http.server 8790 --bind 127.0.0.1",
+    "serve": "python3 -m http.server 8790 --bind 127.0.0.1"
+  },
+  "keywords": [
+    "jobs",
+    "resume",
+    "local-first",
+    "remote-work",
+    "career"
+  ]
+}
