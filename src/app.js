@@ -41,6 +41,7 @@ import {
   applicationsToMarkdown,
   resumesToMarkdown,
 } from './lib/export.js';
+import { loadSamplePack } from './lib/sample.js';
 
 /** @type {any} */
 let state = {
@@ -139,6 +140,81 @@ function domainStats() {
 
 function appliedJobIds() {
   return new Set(state.applications.map((a) => a.jobId).filter(Boolean));
+}
+
+/** First-session checklist derived from live data. */
+function onboardingSteps() {
+  const hasMaster = !!(state.master?.body || '').trim();
+  const hasWorking = !!(state.working?.body || '').trim();
+  const hasProfile =
+    (state.profile?.skills || []).length > 0 ||
+    (state.profile?.experienceKeywords || []).length > 0 ||
+    !!(state.profile?.name || '').trim();
+  const hasJobs = state.jobs.length > 0;
+  const hasApps = state.applications.length > 0;
+  const hasApi = !!(state.settings?.llmApiKey || '').trim();
+  const steps = [
+    {
+      id: 'resume',
+      label: 'Paste Master Resume (Working can copy from it)',
+      done: hasMaster || hasWorking,
+      view: 'resumes',
+    },
+    {
+      id: 'profile',
+      label: 'Set skills, domains & salary floor',
+      done: hasProfile,
+      view: 'profile',
+    },
+    {
+      id: 'jobs',
+      label: 'Fetch Remotive or load sample jobs',
+      done: hasJobs,
+      view: 'jobs',
+    },
+    {
+      id: 'apply',
+      label: 'Log your first application (JD is saved automatically)',
+      done: hasApps,
+      view: hasJobs ? 'digest' : 'jobs',
+    },
+    {
+      id: 'api',
+      label: 'Optional: add Grok API key for Prepare & deep analysis',
+      done: hasApi,
+      view: 'settings',
+      optional: true,
+    },
+  ];
+  const required = steps.filter((s) => !s.optional);
+  const doneRequired = required.filter((s) => s.done).length;
+  const complete = required.every((s) => s.done);
+  return { steps, doneRequired, totalRequired: required.length, complete };
+}
+
+function scoreBreakdownHtml(j) {
+  const b = j.scoreBreakdown;
+  if (!b) return '';
+  const row = (label, v) => {
+    const pct = Math.round(clamp01(v) * 100);
+    return `<div class="score-bar-row" title="${esc(label)}: ${pct}%">
+      <span>${esc(label)}</span>
+      <div class="score-bar"><i style="width:${pct}%"></i></div>
+      <span class="score-bar-n">${pct}</span>
+    </div>`;
+  };
+  return `<div class="score-breakdown">
+    ${row('Skills', b.skillOverlap)}
+    ${row('Keywords', b.keywordOverlap)}
+    ${row('Domain', b.domainBoost)}
+    ${row('Salary', b.salaryFit)}
+    ${row('Remote', b.remoteFit)}
+    ${b.penalty ? `<div class="score-bar-row dim"><span>Penalties</span><span class="score-bar-n">−${Math.round(clamp01(b.penalty) * 100)}</span></div>` : ''}
+  </div>`;
+}
+
+function clamp01(n) {
+  return Math.max(0, Math.min(1, Number(n) || 0));
 }
 
 // ── Shell ──────────────────────────────────────────────────
@@ -244,6 +320,7 @@ function viewTitle() {
 
 function renderDashboard(root, actions) {
   actions.innerHTML = `
+    <button type="button" class="btn" id="d-sample">Load sample data</button>
     <button type="button" class="btn" id="d-fetch">Fetch Remotive</button>
     <button type="button" class="btn primary" id="d-digest">Open digest</button>
   `;
@@ -257,6 +334,7 @@ function renderDashboard(root, actions) {
     offer: apps.filter((a) => a.status === 'Offer').length,
   };
   const digest = buildDigest(state.jobs, appliedJobIds(), DIGEST_SIZE);
+  const onboard = onboardingSteps();
 
   root.innerHTML = `
     <section class="hero">
@@ -268,10 +346,27 @@ function renderDashboard(root, actions) {
       </div>
     </section>
     ${
-      !resumeBody().trim()
-        ? `<div class="banner warn">
-            <h3>Start with your Master Resume</h3>
-            <p class="muted" style="margin:0">Paste your base resume under <strong>Resumes</strong>. The Working copy evolves from outcomes; Master stays clean.</p>
+      !onboard.complete
+        ? `<div class="onboard card">
+            <div class="onboard-head">
+              <h3>Get started</h3>
+              <span class="dim">${onboard.doneRequired}/${onboard.totalRequired} core steps</span>
+            </div>
+            <div class="onboard-progress"><i style="width:${Math.round((onboard.doneRequired / onboard.totalRequired) * 100)}%"></i></div>
+            <ul class="onboard-list">
+              ${onboard.steps
+                .map(
+                  (s) => `
+                <li class="${s.done ? 'done' : ''}">
+                  <span class="onboard-check">${s.done ? '✓' : '○'}</span>
+                  <button type="button" class="onboard-link" data-go="${s.view}">
+                    ${esc(s.label)}${s.optional ? ' <span class="dim">(optional)</span>' : ''}
+                  </button>
+                </li>`
+                )
+                .join('')}
+            </ul>
+            <p class="dim" style="margin:0.75rem 0 0">New here? <button type="button" class="btn" id="onboard-sample">Load sample data</button> to see scoring, JDs on apps, and a flagged domain in one click.</p>
           </div>`
         : ''
     }
@@ -314,19 +409,43 @@ function renderDashboard(root, actions) {
               .slice(0, 5)
               .map((j) => jobCardHtml(j, { compact: true }))
               .join('')
-          : `<div class="empty"><h3>No ranked jobs yet</h3><p>Fetch Remotive or add a job manually.</p></div>`
+          : `<div class="empty"><h3>No ranked jobs yet</h3><p>Fetch Remotive, add a job manually, or load sample data.</p></div>`
       }
     </div>
     ${supportBlock()}
   `;
+  const runSample = async () => {
+    if (
+      (state.jobs.length || state.applications.length || resumeBody().trim()) &&
+      !confirm('Load sample pack? This adds demo resume, profile, jobs, and applications (does not wipe your data — may add alongside).')
+    ) {
+      return;
+    }
+    try {
+      const r = await loadSamplePack();
+      await reloadAll();
+      toast(`Sample loaded: ${r.jobs} jobs, ${r.applications} apps with JDs`, 'ok');
+      render();
+    } catch (err) {
+      toast(err.message || String(err), 'err');
+    }
+  };
   $('#d-fetch').onclick = () => fetchJobs();
   $('#d-digest').onclick = () => {
     state.view = 'digest';
     render();
   };
+  $('#d-sample').onclick = runSample;
+  $('#onboard-sample')?.addEventListener('click', runSample);
   $('#go-domains')?.addEventListener('click', () => {
     state.view = 'domains';
     render();
+  });
+  root.querySelectorAll('[data-go]').forEach((btn) => {
+    btn.onclick = () => {
+      state.view = btn.dataset.go;
+      render();
+    };
   });
   bindJobCards(root);
 }
@@ -414,7 +533,8 @@ function jobCardHtml(j, { compact } = {}) {
   const domains = (j.domains || []).map((d) => `<span class="tag">${esc(d)}</span>`).join('');
   const desc = compact
     ? ''
-    : `<p class="dim" style="margin:0.4rem 0 0;grid-column:1/-1">${esc((j.description || '').slice(0, 220))}${(j.description || '').length > 220 ? '…' : ''}</p>`;
+    : `<p class="dim" style="margin:0.4rem 0 0">${esc((j.description || '').slice(0, 220))}${(j.description || '').length > 220 ? '…' : ''}</p>`;
+  const breakdown = scoreBreakdownHtml(j);
   return `
     <article class="job-card" data-job-id="${j.id}">
       <div>
@@ -422,9 +542,10 @@ function jobCardHtml(j, { compact } = {}) {
         <div class="job-meta">${esc(j.company)} · ${esc(j.source)} · ${formatDate(j.fetchedAt)}</div>
         <div style="margin-top:0.35rem">${domains}<span class="tag">${esc(j.category || '—')}</span></div>
         ${desc}
+        ${breakdown}
       </div>
       <div class="row-actions" style="flex-direction:column;align-items:flex-end">
-        <span class="score-pill ${scoreClass(j.score || 0)}" title="Match score">${j.score ?? 0}</span>
+        <span class="score-pill ${scoreClass(j.score || 0)}" title="Match score vs Working resume + profile">${j.score ?? 0}</span>
         <div class="row-actions" style="margin-top:0.4rem">
           <button type="button" class="btn primary" data-prepare="${j.id}">Prepare</button>
           <button type="button" class="btn" data-apply="${j.id}">Log apply</button>
@@ -593,6 +714,7 @@ function renderApplications(root, actions) {
 }
 
 function appCardHtml(a) {
+  const jdLen = (a.jobDescription || '').trim().length;
   return `
     <article class="job-card">
       <div>
@@ -601,6 +723,7 @@ function appCardHtml(a) {
         <div style="margin-top:0.35rem">
           <span class="tag">${esc(a.status)}</span>
           <span class="tag">${esc(a.domain)}</span>
+          <span class="tag ${jdLen ? 'working' : ''}">${jdLen ? `JD ${jdLen.toLocaleString()} chars` : 'No JD'}</span>
         </div>
         ${a.notes ? `<p class="dim" style="margin:0.4rem 0 0">${esc(a.notes.slice(0, 180))}</p>` : ''}
       </div>
@@ -617,8 +740,9 @@ function openAppEditor(id) {
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   backdrop.innerHTML = `
-    <div class="modal">
+    <div class="modal wide">
       <h2>${existing ? 'Update application' : 'Log application'}</h2>
+      <p class="muted">Paste the job description when you can — it powers domain analysis later.</p>
       <div class="field"><label>Title</label><input id="ap-title" value="${esc(existing?.title || '')}" /></div>
       <div class="field"><label>Company</label><input id="ap-company" value="${esc(existing?.company || '')}" /></div>
       <div class="field"><label>URL</label><input id="ap-url" value="${esc(existing?.url || '')}" /></div>
@@ -642,7 +766,8 @@ function openAppEditor(id) {
           </select>
         </div>
       </div>
-      <div class="field"><label>Notes</label><textarea id="ap-notes" rows="4">${esc(existing?.notes || '')}</textarea></div>
+      <div class="field"><label>Notes</label><textarea id="ap-notes" rows="3">${esc(existing?.notes || '')}</textarea></div>
+      <div class="field"><label>Job description (saved for learning loop)</label><textarea id="ap-jd" rows="8" placeholder="Paste the full JD here…">${esc(existing?.jobDescription || '')}</textarea></div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" id="ap-cancel">Cancel</button>
         <button type="button" class="btn primary" id="ap-save">Save</button>
@@ -659,6 +784,7 @@ function openAppEditor(id) {
       domain: $('#ap-domain', backdrop).value,
       status: $('#ap-status', backdrop).value,
       notes: $('#ap-notes', backdrop).value,
+      jobDescription: $('#ap-jd', backdrop).value,
     };
     if (!payload.title) {
       toast('Title required', 'err');
@@ -668,7 +794,7 @@ function openAppEditor(id) {
     else await putApplication({ ...payload, resumeBase: 'working' });
     close();
     await reloadAll();
-    toast('Saved', 'ok');
+    toast(payload.jobDescription?.trim() ? 'Saved (JD stored)' : 'Saved — tip: add JD for better analysis', 'ok');
     if (payload.status === 'Offer') {
       setTimeout(
         () =>
@@ -692,10 +818,11 @@ async function logApplyFromJob(jobId) {
     domain,
     status: 'Applied',
     notes: '',
+    jobDescription: job.description || '',
     resumeBase: 'working',
   });
   await reloadAll();
-  toast('Logged as Applied', 'ok');
+  toast(job.description ? 'Logged as Applied · JD saved' : 'Logged as Applied · no JD on this listing', 'ok');
   state.view = 'applications';
   render();
 }
@@ -802,13 +929,14 @@ async function prepareForJob(jobId) {
         domain,
         status: 'Applied',
         notes: 'Prepared via Bootstraps',
+        jobDescription: job.description || '',
         tailoredResume: $('#p-resume', backdrop).value,
         coverNote: $('#p-note', backdrop).value,
         resumeBase: 'working',
       });
       close();
       await reloadAll();
-      toast('Saved to applications', 'ok');
+      toast('Saved to applications · JD stored', 'ok');
       state.view = 'applications';
       render();
     }

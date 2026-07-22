@@ -50,6 +50,10 @@ Include cover note: ${includeCover ? 'yes' : 'no (set coverNote to "")'}`,
  */
 export function domainFailurePrompt({ domain, workingResume, applications, profile }) {
   const packs = applications.slice(0, 12).map((a, i) => {
+    const jd = (a.jobDescription || '').trim();
+    const jdBlock = jd
+      ? `JOB DESCRIPTION (captured at apply):\n${jd.slice(0, 2500)}${jd.length > 2500 ? '\n…[truncated]' : ''}`
+      : 'JOB DESCRIPTION: (not stored — rely on title/notes)';
     return `### App ${i + 1}
 Title: ${a.title}
 Company: ${a.company}
@@ -58,10 +62,10 @@ Domain: ${a.domain}
 Applied: ${a.appliedAt ? new Date(a.appliedAt).toISOString().slice(0, 10) : '—'}
 Notes: ${(a.notes || '').slice(0, 400) || '—'}
 URL: ${a.url || '—'}
-JD excerpt (if stored in notes/tailored unused): ${(a.tailoredResume || '').slice(0, 200) ? '[tailored on file]' : '—'}`;
+Tailored materials on file: ${a.tailoredResume ? 'yes' : 'no'}
+${jdBlock}`;
   });
 
-  // Prefer attaching short JD from notes field conventions — keep compact
   return {
     system: `You are a rigorous career strategist analyzing rejection patterns for ONE domain.
 Output strict JSON only (no markdown fences):
@@ -76,9 +80,10 @@ Output strict JSON only (no markdown fences):
   "summary": "4-6 sentence plain-language brief for the candidate"
 }
 Rules:
-- Be specific to the domain and evidence given.
+- Be specific to the domain and evidence given — especially job descriptions when present.
 - Do not invent experience; only reframe or emphasize what is plausible from the resume.
-- Prefer high-signal keyword and proof-point fixes over vague advice.`,
+- Prefer high-signal keyword and proof-point fixes over vague advice.
+- Call out mismatches between JD language and the working resume.`,
     user: `DOMAIN UNDER REVIEW: ${domain}
 
 PROFILE:
@@ -92,7 +97,7 @@ ${(workingResume || '').slice(0, 10000)}
 APPLICATIONS & OUTCOMES (${applications.length} total, showing up to 12):
 ${packs.join('\n\n')}
 
-Job description text may be limited; use titles, notes, and resume mismatch signals.`,
+Use job descriptions when available; otherwise titles, notes, and resume mismatch signals.`,
   };
 }
 
