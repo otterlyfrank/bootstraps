@@ -446,6 +446,108 @@ select {
   font-size: 0.88rem;
 }
 
+/* Resume diff */
+.diff-panel {
+  margin-bottom: 1.15rem;
+}
+
+.diff-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.diff-head h3 {
+  font-family: var(--serif);
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.diff-body {
+  max-height: 22rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.diff-line {
+  display: grid;
+  grid-template-columns: 1.2rem 1fr;
+  gap: 0.35rem;
+  padding: 0.1rem 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diff-mark {
+  color: var(--dim);
+  user-select: none;
+}
+
+.diff-add {
+  background: rgba(107, 207, 142, 0.12);
+  color: var(--text);
+}
+
+.diff-add .diff-mark {
+  color: var(--accent);
+}
+
+.diff-del {
+  background: rgba(212, 120, 120, 0.12);
+  color: var(--text);
+}
+
+.diff-del .diff-mark {
+  color: var(--danger);
+}
+
+.diff-same {
+  color: var(--dim);
+}
+
+/* Local prep hints */
+.prep-hints {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin: 0.75rem 0 1rem;
+}
+
+.prep-hint-col {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.65rem 0.75rem;
+  background: var(--bg);
+}
+
+.prep-hint-col h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.prep-hint-col p {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 640px) {
+  .prep-hints {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 720px) {
   .hero {
     grid-template-columns: 1fr;

@@ -29,9 +29,15 @@ import {
   getUsageSummary,
   exportAllData,
 } from './storage/db.js';
-import { syncRemotive, normalizeManual, rescoreAllJobs } from './jobs/sources.js';
+import {
+  syncRemotive,
+  normalizeManual,
+  rescoreAllJobs,
+  importBulkJobs,
+} from './jobs/sources.js';
 import { scoreJob, buildDigest, inferDomains } from './jobs/match.js';
 import { domainPerformance, appsForDomain } from './jobs/learning.js';
+import { buildLocalPrep } from './jobs/hints.js';
 import { chatCompletion, checkLlm, formatUsd } from './ai/client.js';
 import { prepareApplicationPrompt, domainFailurePrompt, parseModelJson } from './ai/prompts.js';
 import {
@@ -42,6 +48,7 @@ import {
   resumesToMarkdown,
 } from './lib/export.js';
 import { loadSamplePack } from './lib/sample.js';
+import { lineDiff, diffStats } from './lib/diff.js';
 
 /** @type {any} */
 let state = {
@@ -480,6 +487,7 @@ function renderDigest(root, actions) {
 
 function renderJobs(root, actions) {
   actions.innerHTML = `
+    <button type="button" class="btn" id="j-bulk">Bulk import</button>
     <button type="button" class="btn" id="j-manual">Add manual</button>
     <button type="button" class="btn primary" id="j-fetch">Fetch Remotive</button>
   `;
@@ -513,6 +521,7 @@ function renderJobs(root, actions) {
   `;
   $('#j-fetch').onclick = () => fetchJobs();
   $('#j-manual').onclick = () => openManualJob();
+  $('#j-bulk').onclick = () => openBulkImport();
   $('#job-q').addEventListener('keydown', async (e) => {
     if (e.key === 'Enter') {
       state.jobQ = e.target.value.trim();
@@ -599,13 +608,62 @@ async function fetchJobs() {
   }
 }
 
+function openBulkImport() {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal wide">
+      <h2>Bulk import jobs</h2>
+      <p class="muted">Paste jobs from WWR, newsletters, JSON dumps, or spreadsheets. No scraper — you paste, we score.</p>
+      <div class="field">
+        <label>Formats</label>
+        <p class="dim" style="margin:0">• Blocks with <code>Title:</code> <code>Company:</code> <code>URL:</code> <code>Description:</code> separated by <code>---</code><br/>
+        • TSV: title · company · url · description<br/>
+        • JSON array or Remotive-style <code>{"jobs":[...]}</code></p>
+      </div>
+      <div class="field"><label>Paste</label><textarea id="bulk-raw" rows="14" placeholder="Title: Remote Data Analyst
+Company: Acme
+URL: https://...
+Description: SQL, Python, remote...
+
+---
+
+Title: Strategy Associate
+Company: Harbor
+..."></textarea></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="bulk-cancel">Cancel</button>
+        <button type="button" class="btn primary" id="bulk-go">Import & score</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  const close = () => backdrop.remove();
+  $('#bulk-cancel', backdrop).onclick = close;
+  $('#bulk-go', backdrop).onclick = async () => {
+    const raw = $('#bulk-raw', backdrop).value;
+    try {
+      const r = await importBulkJobs(raw, state.profile, resumeBody(), state.settings.domains);
+      if (!r.total) {
+        toast('No jobs parsed — check format', 'err');
+        return;
+      }
+      close();
+      await reloadAll();
+      toast(`Imported ${r.added} new · ${r.updated} updated`, 'ok');
+      render();
+    } catch (err) {
+      toast(err.message || String(err), 'err');
+    }
+  };
+}
+
 function openManualJob() {
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   backdrop.innerHTML = `
     <div class="modal">
       <h2>Add job manually</h2>
-      <p class="muted">For We Work Remotely, company sites, referrals, etc.</p>
+      <p class="muted">For We Work Remotely, company sites, referrals, etc. Or use Bulk import for many at once.</p>
       <div class="field"><label>Title</label><input id="m-title" /></div>
       <div class="field"><label>Company</label><input id="m-company" /></div>
       <div class="field"><label>URL</label><input id="m-url" placeholder="https://" /></div>
@@ -1089,6 +1147,7 @@ async function prepareForJob(jobId) {
 
 function renderResumes(root, actions) {
   actions.innerHTML = `
+    <button type="button" class="btn" id="r-diff">Master ↔ Working diff</button>
     <button type="button" class="btn" id="r-export">Export MD</button>
     <button type="button" class="btn" id="r-clone">Working ← Master</button>
   `;
@@ -1097,6 +1156,7 @@ function renderResumes(root, actions) {
       <span class="tag master">Master</span> stable reference ·
       <span class="tag working">Working</span> evolves from rejections & accepted suggestions
     </p>
+    <div id="resume-diff-host"></div>
     <div class="grid-2">
       <div class="resume-panel master">
         <header>
@@ -1181,6 +1241,39 @@ function renderResumes(root, actions) {
       resumesToMarkdown(state.master, state.working),
       'text/markdown'
     );
+  };
+  $('#r-diff').onclick = () => {
+    const host = $('#resume-diff-host');
+    if (host.dataset.open === '1') {
+      host.innerHTML = '';
+      host.dataset.open = '0';
+      return;
+    }
+    const rows = lineDiff(state.master?.body || '', state.working?.body || '');
+    const st = diffStats(rows);
+    host.dataset.open = '1';
+    host.innerHTML = `
+      <div class="diff-panel card">
+        <div class="diff-head">
+          <h3>Master → Working</h3>
+          <span class="dim">${st.added} added · ${st.removed} removed · ${st.same} unchanged lines</span>
+        </div>
+        <p class="dim" style="margin:0 0 0.65rem">Red = only in Master · Green = only in Working · Gray = same</p>
+        <div class="diff-body">
+          ${
+            st.changed === 0
+              ? `<p class="muted">No differences — Working matches Master line-for-line.</p>`
+              : rows
+                  .map((r) => {
+                    if (r.type === 'same' && !r.text.trim()) return '';
+                    const cls = r.type === 'add' ? 'diff-add' : r.type === 'del' ? 'diff-del' : 'diff-same';
+                    const mark = r.type === 'add' ? '+' : r.type === 'del' ? '−' : ' ';
+                    return `<div class="diff-line ${cls}"><span class="diff-mark">${mark}</span><span class="diff-text">${esc(r.text) || ' '}</span></div>`;
+                  })
+                  .join('')
+          }
+        </div>
+      </div>`;
   };
 }
 

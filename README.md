@@ -54,11 +54,12 @@ The **Dashboard** shows a live checklist. Fast path:
 
 1. **Load sample data** (Dashboard) — demo resume, scored jobs, applications with JDs, and a flagged domain.  
    Or paste your real **Master** resume and fill **Profile**.
-2. **Job board** → **Fetch Remotive** or use sample jobs; scores show a **breakdown** (skills / keywords / domain / salary / remote).
-3. **Log apply** from a card — the **job description is stored** on the application (for domain analysis later).
-4. **Settings** → optional xAI/Grok API key for Prepare + deep analysis.
-5. Update statuses on the **Applications → Pipeline** board (drag cards or use the status menu).  
-6. **Domain intel** when flags appear → **Analyze failures** → accept/reject each suggestion → **Apply accepted → Working**.
+2. **Job board** → **Fetch Remotive**, **Bulk import** (WWR paste / TSV / JSON), or sample jobs. Scores show a **breakdown**.
+3. **Prepare** on a card → **free local prep** (keyword coverage + pack) works offline; optional **Polish with Grok**.
+4. **Log apply** — JD is stored for the learning loop.
+5. **Applications → Pipeline** — drag status changes.
+6. **Resumes → Master ↔ Working diff** — see what evolved.
+7. **Domain intel** → accept/reject suggestions → apply to Working.
 
 ---
 
