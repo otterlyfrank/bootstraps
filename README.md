@@ -6,7 +6,20 @@ Find high-fit remote roles, track every application, and turn rejection patterns
 > Hunt → apply → log outcomes → detect weak domains → deep analysis → compound improvements.
 
 ![Local-first](https://img.shields.io/badge/data-local--first-green)
-![License: MIT](https://img.shields.io/badge/license-MIT-blue)
+![License: free personal use](https://img.shields.io/badge/license-free%20personal%20use-blue)
+
+**Private repository** for now. Free for personal use; commercial redistribution needs permission. License can be changed later if you go public.
+
+---
+
+## If this helps you get hired
+
+Compound is free. If it helps you land a role, get interviews, or improve your materials, **please consider donating** — it funds continued development.
+
+- **GitHub Sponsors** — set your URL in Settings (or update the defaults in the app)  
+- **Ko-fi** — same  
+
+You’ll also see a soft reminder in the app sidebar and on the dashboard.
 
 ---
 
@@ -137,4 +150,10 @@ Mass auto-apply · LinkedIn scraping · multi-user cloud sync · noisy vanity da
 
 ## License
 
-MIT © Compound contributors
+**Free personal use** (source-available) — see [LICENSE](./LICENSE).
+
+- Use and modify for yourself freely  
+- Don’t sell the product or host it as a paid service without permission  
+- No warranty  
+
+If you’re unsure about open-source (MIT, Apache, etc.) later: personal-use is a safe default while the repo is private. Switching to MIT before a public launch is easy and still compatible with “please donate if this helped you get a job.”

@@ -1,21 +1,23 @@
-MIT License
+Compound — Free Personal Use License (source-available)
 
-Copyright (c) 2026 Compound contributors
+Copyright (c) 2026 Compound authors
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Permission is granted to use, copy, and modify this software for personal,
+non-commercial purposes, free of charge, subject to the following:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. No warranty. The software is provided "as is", without warranty of any kind.
+2. You may not sell this software, or offer it as a paid product or hosted
+   service, without prior written permission from the copyright holders.
+3. If you redistribute modified or unmodified copies (for free), you must
+   include this license and retain copyright notices.
+4. All rights not expressly granted are reserved.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Donations
+---------
+If Compound helps you land a role or improve your search, please consider
+supporting continued development. Donation links are listed in the app
+Settings and README.
+
+This license is intentionally simple while the project is private. The authors
+may re-license (e.g. MIT or another open-source license) later before or after
+a public release.

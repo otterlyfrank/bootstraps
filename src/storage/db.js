@@ -39,6 +39,11 @@ export const DEFAULT_SETTINGS = {
   rejectionWindowDays: REJECTION_THRESHOLDS.windowDays,
   remotiveCategory: 'data',
   lastJobFetchAt: 0,
+  /** Donation / support links — shown in-app so users who land jobs can give back */
+  supportGithubSponsors: 'https://github.com/sponsors',
+  supportKofi: 'https://ko-fi.com',
+  supportNote:
+    'Compound is free to use. If it helps you land a role (or even get interviews), please consider donating — it keeps the tool improving.',
 };
 
 function uuid() {

@@ -163,6 +163,9 @@ function render() {
         <p class="usage-chip" style="display:inline-block;margin-top:0.35rem">
           AI ~${formatUsd(state.usage.estCostUsd)} · ${state.usage.totalTokens || 0} tok
         </p>
+        <p style="margin:0.65rem 0 0">
+          <a href="#support" data-nav="settings" class="donate-link">♥ If this helps you get hired, donate</a>
+        </p>
       </div>
     </aside>
     <div class="main">
@@ -178,6 +181,9 @@ function render() {
       state.view = btn.dataset.nav;
       await reloadAll();
       render();
+      if (state.view === 'settings') {
+        requestAnimationFrame(() => $('#support')?.scrollIntoView({ behavior: 'smooth' }));
+      }
     };
   });
   const root = $('#view-root');
@@ -193,6 +199,23 @@ function render() {
     settings: renderSettings,
   };
   (map[state.view] || renderDashboard)(root, actions);
+}
+
+function supportBlock() {
+  const s = state.settings || {};
+  return `
+    <div class="support-card" id="support">
+      <h3>If Compound helps you get hired</h3>
+      <p>${esc(
+        s.supportNote ||
+          'This tool is free. If it helps you land a job, get interviews, or sharpen your resume — please donate. It funds continued development.'
+      )}</p>
+      <div class="support-links">
+        <a class="btn primary" href="${esc(s.supportGithubSponsors || 'https://github.com/sponsors')}" target="_blank" rel="noopener">GitHub Sponsors</a>
+        <a class="btn" href="${esc(s.supportKofi || 'https://ko-fi.com')}" target="_blank" rel="noopener">Ko-fi</a>
+      </div>
+      <p class="dim" style="margin:0.75rem 0 0;font-size:0.82rem">Even a one-time coffee after an offer means a lot.</p>
+    </div>`;
 }
 
 function navBtn(id, label) {
@@ -291,6 +314,7 @@ function renderDashboard(root, actions) {
           : `<div class="empty"><h3>No ranked jobs yet</h3><p>Fetch Remotive or add a job manually.</p></div>`
       }
     </div>
+    ${supportBlock()}
   `;
   $('#d-fetch').onclick = () => fetchJobs();
   $('#d-digest').onclick = () => {
@@ -642,6 +666,13 @@ function openAppEditor(id) {
     close();
     await reloadAll();
     toast('Saved', 'ok');
+    if (payload.status === 'Offer') {
+      setTimeout(
+        () =>
+          toast('Offer logged — if Compound helped, please donate (sidebar ♥)', 'ok'),
+        700
+      );
+    }
     render();
   };
 }
@@ -1154,6 +1185,14 @@ function renderSettings(root, actions) {
       <h3>Domain tags</h3>
       <div class="field"><label>One per line</label><textarea id="s-domains" rows="8">${esc((s.domains || []).join('\n'))}</textarea></div>
     </div>
+    <div class="card" style="max-width:36rem;margin-top:1rem">
+      <h3>Support / donations</h3>
+      <p class="muted">Shown to you (and later users) so people who land jobs can give back. Set your real Sponsors / Ko-fi URLs.</p>
+      <div class="field"><label>GitHub Sponsors URL</label><input id="s-gh" value="${esc(s.supportGithubSponsors || '')}" placeholder="https://github.com/sponsors/yourname" /></div>
+      <div class="field"><label>Ko-fi URL</label><input id="s-kofi" value="${esc(s.supportKofi || '')}" placeholder="https://ko-fi.com/yourname" /></div>
+      <div class="field"><label>Message</label><textarea id="s-support-note" rows="3">${esc(s.supportNote || '')}</textarea></div>
+    </div>
+    ${supportBlock()}
   `;
   $('#s-save').onclick = async () => {
     const domains = $('#s-domains')
@@ -1171,6 +1210,9 @@ function renderSettings(root, actions) {
       rejectionMaxInterviews: Number($('#s-maxint').value) || 0,
       rejectionWindowDays: Number($('#s-win').value) || 0,
       domains: domains.length ? domains : state.settings.domains,
+      supportGithubSponsors: $('#s-gh').value.trim(),
+      supportKofi: $('#s-kofi').value.trim(),
+      supportNote: $('#s-support-note').value.trim(),
     });
     applyTheme(state.settings.theme);
     toast('Settings saved', 'ok');

@@ -612,6 +612,48 @@ select {
   border-radius: 999px;
 }
 
+.donate-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.35;
+  display: inline-block;
+}
+
+.donate-link:hover {
+  text-decoration: underline;
+}
+
+.support-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+  background: var(--bg-elev);
+  margin-top: 1.5rem;
+  max-width: 36rem;
+}
+
+.support-card h3 {
+  font-family: var(--serif);
+  margin: 0 0 0.4rem;
+  font-size: 1.05rem;
+  color: var(--accent);
+}
+
+.support-card p {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.support-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .prose {
   white-space: pre-wrap;
   font-size: 0.92rem;
