@@ -57,7 +57,8 @@ The **Dashboard** shows a live checklist. Fast path:
 2. **Job board** → **Fetch Remotive** or use sample jobs; scores show a **breakdown** (skills / keywords / domain / salary / remote).
 3. **Log apply** from a card — the **job description is stored** on the application (for domain analysis later).
 4. **Settings** → optional xAI/Grok API key for Prepare + deep analysis.
-5. Update statuses honestly → **Domain intel** when flags appear.
+5. Update statuses on the **Applications → Pipeline** board (drag cards or use the status menu).  
+6. **Domain intel** when flags appear → **Analyze failures** → accept/reject each suggestion → **Apply accepted → Working**.
 
 ---
 
