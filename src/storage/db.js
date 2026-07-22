@@ -298,6 +298,8 @@ export async function putApplication(app) {
     tags: app.tags || [],
     status: app.status || 'Applied',
     notes: app.notes || '',
+    /** Full JD text captured at apply time — fuels domain analysis */
+    jobDescription: app.jobDescription || '',
     tailoredResume: app.tailoredResume || '',
     coverNote: app.coverNote || '',
     resumeBase: app.resumeBase || 'working', // which version used

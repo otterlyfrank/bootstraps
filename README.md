@@ -50,14 +50,14 @@ python -m http.server 8790
 
 ## First session (15 minutes)
 
-1. **Resumes** → paste your clean CV into **Master**, then **Working ← Master** (or paste into Working).
-2. **Profile** → skills, keywords, preferred domains, salary floor (~2000–3000 USD/mo), deal-breakers.
-3. **Settings** → optional xAI/Grok API key (`https://api.x.ai/v1`).
-4. **Job board** → **Fetch Remotive** (public remote jobs API) or **Add manual** (WWR, referrals, company sites).
-5. **Recommended** → work the 4–8 highest scores.
-6. **Prepare** on a job card → tailored ATS resume (fast model) → **Log apply**.
-7. Update statuses honestly (Rejected / Ghosted / Interview).
-8. **Domain intel** → when a domain flags, **Analyze failures** (deep model) → accept into Working Resume.
+The **Dashboard** shows a live checklist. Fast path:
+
+1. **Load sample data** (Dashboard) — demo resume, scored jobs, applications with JDs, and a flagged domain.  
+   Or paste your real **Master** resume and fill **Profile**.
+2. **Job board** → **Fetch Remotive** or use sample jobs; scores show a **breakdown** (skills / keywords / domain / salary / remote).
+3. **Log apply** from a card — the **job description is stored** on the application (for domain analysis later).
+4. **Settings** → optional xAI/Grok API key for Prepare + deep analysis.
+5. Update statuses honestly → **Domain intel** when flags appear.
 
 ---
 

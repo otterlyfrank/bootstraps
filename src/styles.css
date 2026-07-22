@@ -163,6 +163,124 @@ select {
   align-items: center;
 }
 
+/* Onboarding checklist */
+.onboard {
+  margin-bottom: 1.25rem;
+  border-color: rgba(107, 207, 142, 0.35);
+}
+
+.onboard-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.55rem;
+}
+
+.onboard-head h3 {
+  font-family: var(--serif);
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.onboard-progress {
+  height: 6px;
+  border-radius: 99px;
+  background: var(--border);
+  overflow: hidden;
+  margin-bottom: 0.85rem;
+}
+
+.onboard-progress > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 99px;
+  transition: width 0.25s ease;
+}
+
+.onboard-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.onboard-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.onboard-list li.done .onboard-link {
+  color: var(--dim);
+  text-decoration: line-through;
+}
+
+.onboard-check {
+  color: var(--accent);
+  font-weight: 700;
+  width: 1.1rem;
+  flex-shrink: 0;
+  line-height: 1.45;
+}
+
+.onboard-link {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  line-height: 1.45;
+}
+
+.onboard-link:hover {
+  color: var(--accent);
+}
+
+/* Score breakdown on job cards */
+.score-breakdown {
+  margin-top: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  max-width: 18rem;
+}
+
+.score-bar-row {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr 1.6rem;
+  gap: 0.35rem;
+  align-items: center;
+  font-size: 0.72rem;
+  color: var(--dim);
+}
+
+.score-bar {
+  height: 5px;
+  border-radius: 99px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.score-bar > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 99px;
+}
+
+.score-bar-n {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
 @media (max-width: 720px) {
   .hero {
     grid-template-columns: 1fr;

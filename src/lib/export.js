@@ -35,7 +35,13 @@ export function applicationsToMarkdown(apps) {
       `- Applied: ${formatDate(a.appliedAt)}`,
       `- URL: ${a.url || '—'}`,
       '',
+      '### Notes',
+      '',
       a.notes || '_No notes_',
+      '',
+      '### Job description',
+      '',
+      a.jobDescription || '_No JD stored_',
       '',
       '---',
       ''
