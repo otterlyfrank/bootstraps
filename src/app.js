@@ -147,8 +147,11 @@ function render() {
   rootEl.innerHTML = `
     <aside class="sidebar">
       <div class="brand">
-        <h1>${APP_NAME}</h1>
-        <p>Hunt · learn · climb</p>
+        <img class="brand-logo" src="./public/bootstraps-logo.jpg" alt="" width="52" height="52" />
+        <div>
+          <h1>${APP_NAME}</h1>
+          <p>Hunt · learn · climb</p>
+        </div>
       </div>
       ${navBtn('dashboard', 'Dashboard')}
       ${navBtn('digest', 'Recommended')}
