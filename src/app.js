@@ -1027,7 +1027,7 @@ async function logApplyFromJob(jobId) {
   render();
 }
 
-// ── Prepare application (Grok fast) ────────────────────────
+// ── Prepare application (local free + optional Grok) ───────
 
 async function prepareForJob(jobId) {
   const job = state.jobs.find((j) => j.id === jobId);
@@ -1039,26 +1039,43 @@ async function prepareForJob(jobId) {
     return;
   }
 
+  const local = buildLocalPrep({
+    workingResume: resumeBody(),
+    job,
+    profile: state.profile,
+  });
+
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   backdrop.innerHTML = `
     <div class="modal wide">
       <h2>Prepare application</h2>
       <p class="muted">${esc(job.title)} · ${esc(job.company)}</p>
-      <p class="dim">Base: <span class="tag working">Working Resume</span> · Model: ${esc(state.settings.fastModel || AI_DEFAULTS.fastModel)} (fast)</p>
-      <label class="field" style="flex-direction:row;align-items:center;gap:0.5rem">
-        <input type="checkbox" id="p-cover" checked /> Short cover note
-      </label>
-      <div class="modal-actions">
-        <button type="button" class="btn ghost" id="p-cancel">Cancel</button>
-        <button type="button" class="btn primary" id="p-run">Generate with Grok</button>
+      <p class="dim">Base: <span class="tag working">Working Resume</span> · Free local prep runs offline · Grok optional</p>
+      <div class="prep-hints">
+        <div class="prep-hint-col">
+          <h4>Already covered (${local.coveragePct}%)</h4>
+          <p class="dim">${(local.keywordsEmphasized || []).slice(0, 14).map(esc).join(' · ') || '—'}</p>
+        </div>
+        <div class="prep-hint-col">
+          <h4>Gaps (only claim if true)</h4>
+          <p class="dim">${(local.keywordsMissing || []).slice(0, 14).map(esc).join(' · ') || '—'}</p>
+        </div>
       </div>
-      <div id="p-out" hidden>
-        <div class="field" style="margin-top:1rem"><label>Tailored resume</label><textarea id="p-resume" rows="14"></textarea></div>
+      <label class="field" style="flex-direction:row;align-items:center;gap:0.5rem">
+        <input type="checkbox" id="p-cover" checked /> Include short cover note
+      </label>
+      <div class="modal-actions" style="justify-content:flex-start">
+        <button type="button" class="btn primary" id="p-local">Use free local prep</button>
+        <button type="button" class="btn" id="p-run">Polish with Grok (API)</button>
+        <button type="button" class="btn ghost" id="p-cancel">Cancel</button>
+      </div>
+      <div id="p-out">
+        <div class="field" style="margin-top:1rem"><label>Prep pack / tailored resume</label><textarea id="p-resume" rows="14"></textarea></div>
         <div class="field"><label>Cover note</label><textarea id="p-note" rows="5"></textarea></div>
-        <p class="dim" id="p-summary"></p>
+        <p class="dim" id="p-summary">${esc(local.changesSummary)}</p>
         <div class="modal-actions">
-          <button type="button" class="btn" id="p-copy">Copy resume</button>
+          <button type="button" class="btn" id="p-copy">Copy pack</button>
           <button type="button" class="btn primary" id="p-log">Save to application log</button>
         </div>
       </div>
@@ -1066,6 +1083,22 @@ async function prepareForJob(jobId) {
   document.body.appendChild(backdrop);
   const close = () => backdrop.remove();
   $('#p-cancel', backdrop).onclick = close;
+
+  $('#p-resume', backdrop).value = local.tailoredResume;
+  $('#p-note', backdrop).value = local.coverNote;
+
+  $('#p-local', backdrop).onclick = () => {
+    const pack = buildLocalPrep({
+      workingResume: resumeBody(),
+      job,
+      profile: state.profile,
+    });
+    $('#p-resume', backdrop).value = pack.tailoredResume;
+    if ($('#p-cover', backdrop).checked) $('#p-note', backdrop).value = pack.coverNote;
+    else $('#p-note', backdrop).value = '';
+    $('#p-summary', backdrop).textContent = pack.changesSummary;
+    toast('Local prep refreshed (no API)', 'ok');
+  };
 
   $('#p-run', backdrop).onclick = async () => {
     const includeCover = $('#p-cover', backdrop).checked;
@@ -1090,29 +1123,19 @@ async function prepareForJob(jobId) {
         tier: 'fast',
       });
       const parsed = parseModelJson(content);
-      $('#p-out', backdrop).hidden = false;
       $('#p-resume', backdrop).value = parsed.tailoredResume || content;
-      $('#p-note', backdrop).value = parsed.coverNote || '';
-      $('#p-summary', backdrop).textContent =
-        parsed.changesSummary ||
-        (parsed.keywordsEmphasized || []).join(', ') ||
-        'Generated.';
+      $('#p-note', backdrop).value = includeCover ? parsed.coverNote || '' : '';
+      $('#p-summary', backdrop).textContent = (parsed.changesSummary || '') + ' · via Grok';
       state.usage = await getUsageSummary();
+      toast('Grok prep ready', 'ok');
     } catch (err) {
       toast(err.message || String(err), 'err');
     } finally {
       $('#p-run', backdrop).disabled = false;
-      $('#p-run', backdrop).textContent = 'Generate with Grok';
+      $('#p-run', backdrop).textContent = 'Polish with Grok (API)';
     }
   };
 
-  $('#p-copy', backdrop)?.addEventListener('click', async () => {
-    const t = $('#p-resume', backdrop)?.value || '';
-    await navigator.clipboard.writeText(t);
-    toast('Copied', 'ok');
-  });
-
-  // event delegation after generate creates buttons - bind on backdrop
   backdrop.addEventListener('click', async (e) => {
     const t = e.target;
     if (t?.id === 'p-copy') {
