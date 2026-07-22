@@ -1,9 +1,9 @@
-# Compound
+# Bootstraps
 
-**Local-first job hunt optimization.**  
-Find high-fit remote roles, track every application, and turn rejection patterns into a better **Working Resume** — while your **Master Resume** stays clean.
+**Pull yourself up by the bootstraps — then keep climbing.**  
+Local-first job hunt optimization: find high-fit remote roles, track every application, and turn rejection patterns into a better **Working Resume** — while your **Master Resume** stays clean.
 
-> Hunt → apply → log outcomes → detect weak domains → deep analysis → compound improvements.
+> Hunt → apply → log outcomes → detect weak domains → deep analysis → climb.
 
 ![Local-first](https://img.shields.io/badge/data-local--first-green)
 ![License: free personal use](https://img.shields.io/badge/license-free%20personal%20use-blue)
@@ -14,7 +14,7 @@ Find high-fit remote roles, track every application, and turn rejection patterns
 
 ## If this helps you get hired
 
-Compound is free. If it helps you land a role, get interviews, or improve your materials, **please consider donating** — it funds continued development.
+Bootstraps is free. If it helps you land a role, get interviews, or improve your materials, **please consider donating** — it funds continued development.
 
 - **GitHub Sponsors** — set your URL in Settings (or update the defaults in the app)  
 - **Ko-fi** — same  
@@ -30,7 +30,7 @@ Needs a modern browser + [Python 3](https://www.python.org/downloads/) (for a ti
 ### Mac / Linux
 
 ```bash
-cd compound
+cd bootstraps
 chmod +x start.sh
 ./start.sh
 ```
@@ -42,7 +42,7 @@ Open **http://127.0.0.1:8790**
 Double-click **`start.bat`**, or:
 
 ```bat
-cd compound
+cd bootstraps
 python -m http.server 8790
 ```
 
@@ -113,7 +113,7 @@ The sidebar shows **approximate** token spend (display-only; update rates in `TO
 
 ## Data & export
 
-All data in **IndexedDB** (`compound` database):
+All data in **IndexedDB** (`bootstraps` database):
 
 - Profile, settings, master/working resumes, history  
 - Jobs, applications, AI usage ledger  
@@ -127,7 +127,7 @@ API keys are stored only in your browser; JSON export redacts the key.
 ## Project layout
 
 ```text
-compound/
+bootstraps/
   index.html
   start.sh · start.bat
   src/

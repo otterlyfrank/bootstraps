@@ -1,12 +1,12 @@
 /**
- * Compound configuration — model selection, thresholds, prompt knobs.
+ * Bootstraps configuration — model selection, thresholds, prompt knobs.
  * Edit freely; all values are client-side only.
  */
 
 /** @typedef {'fast' | 'deep'} ModelTier */
 
-export const APP_NAME = 'Compound';
-export const APP_TAGLINE = 'Turn applications into a compounding advantage';
+export const APP_NAME = 'Bootstraps';
+export const APP_TAGLINE = 'Pull yourself up—then keep climbing';
 
 /** xAI / OpenAI-compatible endpoint defaults */
 export const AI_DEFAULTS = {

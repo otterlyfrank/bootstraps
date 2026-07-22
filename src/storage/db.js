@@ -1,5 +1,5 @@
 /**
- * Compound IndexedDB — resumes, jobs, applications, profile, AI usage.
+ * Bootstraps IndexedDB — resumes, jobs, applications, profile, AI usage.
  */
 
 import {
@@ -8,7 +8,7 @@ import {
   REJECTION_THRESHOLDS,
 } from '../config.js';
 
-const DB_NAME = 'compound';
+const DB_NAME = 'bootstraps';
 const DB_VERSION = 1;
 
 /** @type {IDBDatabase | null} */
@@ -43,7 +43,7 @@ export const DEFAULT_SETTINGS = {
   supportGithubSponsors: 'https://github.com/sponsors',
   supportKofi: 'https://ko-fi.com',
   supportNote:
-    'Compound is free to use. If it helps you land a role (or even get interviews), please consider donating — it keeps the tool improving.',
+    'Bootstraps is free to use. If it helps you land a role (or even get interviews), please consider donating — it keeps the tool improving.',
 };
 
 function uuid() {
@@ -395,7 +395,7 @@ export async function exportAllData() {
   ]);
   return {
     exportedAt: new Date().toISOString(),
-    app: 'compound',
+    app: 'bootstraps',
     settings: { ...settings, llmApiKey: settings.llmApiKey ? '[redacted]' : '' },
     profile,
     resumes,

@@ -14,7 +14,7 @@ async function boot() {
   if (location.protocol === 'file:') {
     root.innerHTML = `
       <div class="boot">
-        <p class="boot-mark">Compound</p>
+        <p class="boot-mark">Bootstraps</p>
         <p class="muted">Open via the local server, not as a file.</p>
         <p class="dim">Run <code>./start.sh</code> then visit http://127.0.0.1:8790</p>
       </div>`;
@@ -27,7 +27,7 @@ async function boot() {
     console.error(err);
     root.innerHTML = `
       <div class="boot">
-        <p class="boot-mark">Compound</p>
+        <p class="boot-mark">Bootstraps</p>
         <p class="muted">Couldn’t start</p>
         <p class="dim">${esc(err.message || String(err))}</p>
       </div>`;
