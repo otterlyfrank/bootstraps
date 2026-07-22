@@ -1,0 +1,140 @@
+# Compound
+
+**Local-first job hunt optimization.**  
+Find high-fit remote roles, track every application, and turn rejection patterns into a better **Working Resume** — while your **Master Resume** stays clean.
+
+> Hunt → apply → log outcomes → detect weak domains → deep analysis → compound improvements.
+
+![Local-first](https://img.shields.io/badge/data-local--first-green)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue)
+
+---
+
+## Quick start
+
+Needs a modern browser + [Python 3](https://www.python.org/downloads/) (for a tiny local server).
+
+### Mac / Linux
+
+```bash
+cd compound
+chmod +x start.sh
+./start.sh
+```
+
+Open **http://127.0.0.1:8790**
+
+### Windows
+
+Double-click **`start.bat`**, or:
+
+```bat
+cd compound
+python -m http.server 8790
+```
+
+---
+
+## First session (15 minutes)
+
+1. **Resumes** → paste your clean CV into **Master**, then **Working ← Master** (or paste into Working).
+2. **Profile** → skills, keywords, preferred domains, salary floor (~2000–3000 USD/mo), deal-breakers.
+3. **Settings** → optional xAI/Grok API key (`https://api.x.ai/v1`).
+4. **Job board** → **Fetch Remotive** (public remote jobs API) or **Add manual** (WWR, referrals, company sites).
+5. **Recommended** → work the 4–8 highest scores.
+6. **Prepare** on a job card → tailored ATS resume (fast model) → **Log apply**.
+7. Update statuses honestly (Rejected / Ghosted / Interview).
+8. **Domain intel** → when a domain flags, **Analyze failures** (deep model) → accept into Working Resume.
+
+---
+
+## Dual resume system
+
+| Version | Role |
+|---------|------|
+| **Master** | Stable base you control. Reference truth. |
+| **Working** | Living document used for match scoring & prep. Evolves from accepted suggestions and manual edits. |
+
+Every meaningful Working change can be logged in **improvement history** (reason + optional domain link).
+
+---
+
+## Learning loop
+
+1. Applications store status + domain tags.
+2. Domain density is computed (configurable thresholds in Settings).
+3. High rejection / ghost rate with few interviews → **flag**.
+4. **Analyze failures** packages: Working Resume + application outcomes → Grok **deep** model.
+5. You **accept** (full draft or append sections) or **discard**.
+
+No cloud required for tracking — only optional API calls for generation/analysis.
+
+---
+
+## Grok / API usage (cost-aware)
+
+| Task | Default tier | Config key |
+|------|----------------|------------|
+| Prepare application (tailored resume, cover note) | **Fast** | `fastModel` |
+| Domain failure analysis | **Deep** | `deepModel` |
+
+Defaults live in `src/config.js` and Settings:
+
+- Base URL: `https://api.x.ai/v1`
+- Fast model: `grok-4-1-fast-non-reasoning` (edit if your account uses different IDs)
+- Deep model: `grok-4-1-fast-reasoning`
+
+Prompts are in `src/ai/prompts.js` — structured, truncated context, JSON-only outputs.
+
+The sidebar shows **approximate** token spend (display-only; update rates in `TOKEN_COST_USD` if pricing changes).
+
+---
+
+## Job discovery
+
+- **Remotive** — public API, no key (`src/jobs/sources.js`).
+- **Manual entry** — paste JD from We Work Remotely, LinkedIn, email, etc.
+- **Match score** — skills, keywords, preferred domains, salary floor, remote + deal-breakers (`src/jobs/match.js`).
+
+---
+
+## Data & export
+
+All data in **IndexedDB** (`compound` database):
+
+- Profile, settings, master/working resumes, history  
+- Jobs, applications, AI usage ledger  
+
+**Settings → Export JSON** or resume/application Markdown exports from their screens.
+
+API keys are stored only in your browser; JSON export redacts the key.
+
+---
+
+## Project layout
+
+```text
+compound/
+  index.html
+  start.sh · start.bat
+  src/
+    config.js          # models, thresholds, weights
+    main.js · app.js · styles.css
+    storage/db.js      # IndexedDB
+    jobs/match.js · sources.js · learning.js
+    resume/            # (reserved)
+    ai/client.js · prompts.js
+    lib/export.js
+```
+
+---
+
+## Non-goals
+
+Mass auto-apply · LinkedIn scraping · multi-user cloud sync · noisy vanity dashboards.
+
+---
+
+## License
+
+MIT © Compound contributors
