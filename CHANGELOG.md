@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.6.0 — 2026-07-29
+
+### Tier 1–3 polish
+
+**Tier 1**
+- Daily loop dashboard (resume → hunt → decide → follow up)
+- First-run 3-card path; empty shelves with clear CTAs
+- Worth applying / Shortlist / All shelves; min score + hide deal-breakers
+- Shortlist ★ on jobs; Refresh last hunt
+- Application next follow-up date (+1/+3/+7d); overdue strip on dashboard
+
+**Tier 2**
+- Job detail drawer (match reasons + JD)
+- Prep pack export (markdown)
+- Near-duplicate job collapse (title+company)
+- Optional Grok refine hunt queries
+
+**Tier 3**
+- Keyboard shortcuts (H/U/J/A/D/R/?)
+- Weekly at-a-glance strip on dashboard
+
+---
+
 ## 1.5.0 — 2026-07-29
 
 ### Hunt from resume (automated pipeline)

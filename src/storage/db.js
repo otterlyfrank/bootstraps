@@ -39,6 +39,9 @@ export const DEFAULT_SETTINGS = {
   rejectionWindowDays: REJECTION_THRESHOLDS.windowDays,
   remotiveCategory: 'data',
   lastJobFetchAt: 0,
+  minJobScore: 35,
+  hideDealBreakers: true,
+  lastHunt: null,
   /** Donation / support links — shown in-app so users who land jobs can give back */
   supportGithubSponsors: 'https://github.com/sponsors',
   supportKofi: 'https://ko-fi.com',
@@ -237,6 +240,7 @@ export async function putJob(job) {
     score: job.score ?? 0,
     scoreBreakdown: job.scoreBreakdown || null,
     dismissed: !!job.dismissed,
+    shortlisted: !!job.shortlisted,
     fetchedAt: job.fetchedAt || now,
     updatedAt: now,
   };
@@ -255,7 +259,9 @@ export async function listJobs(filter = {}) {
   const t = await tx(['jobs']);
   let all = await reqP(t.objectStore('jobs').getAll());
   if (filter.dismissed === false) all = all.filter((j) => !j.dismissed);
+  if (filter.shortlisted) all = all.filter((j) => j.shortlisted);
   if (filter.source) all = all.filter((j) => j.source === filter.source);
+  if (filter.minScore != null) all = all.filter((j) => (j.score || 0) >= filter.minScore);
   if (filter.q) {
     const q = filter.q.toLowerCase();
     all = all.filter(
@@ -323,6 +329,8 @@ export async function putApplication(app) {
     coverNote: app.coverNote || '',
     resumeBase: app.resumeBase || 'working', // which version used
     appliedAt: app.appliedAt || now,
+    /** Follow-up due (ms epoch) — null = not set */
+    nextTouchAt: app.nextTouchAt ?? null,
     updatedAt: now,
     statusHistory: app.statusHistory || [{ status: app.status || 'Applied', at: now }],
   };
