@@ -17,7 +17,7 @@ async function boot() {
       <div class="boot">
         <p class="boot-mark">Bootstraps</p>
         <p class="muted">Open via the local server, not as a file.</p>
-        <p class="dim">Run <code>./start.sh</code> then visit http://127.0.0.1:8790</p>
+        <p class="dim">Run <code>./start.sh</code> then visit http://127.0.0.1:8792</p>
       </div>`;
     return;
   }

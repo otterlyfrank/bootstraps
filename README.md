@@ -55,7 +55,7 @@ chmod +x start.sh
 ./start.sh
 ```
 
-Open **http://127.0.0.1:8790** → then **Install app** (see above).
+Open **http://127.0.0.1:8792** → then **Install app** (see above).
 
 ### Windows
 
@@ -63,7 +63,7 @@ Double-click **`start.bat`**, or:
 
 ```bat
 cd bootstraps
-python -m http.server 8790
+python -m http.server 8792
 ```
 
 Then install from the browser as above.
