@@ -9,6 +9,20 @@ function esc(s) {
     .replace(/>/g, '&gt;');
 }
 
+function markWebfontsWhenReady() {
+  // Progressive enhancement: if optional Google CSS loads, prefer DM/Newsreader
+  try {
+    if (document.fonts?.ready) {
+      document.fonts.ready.then(() => {
+        const hasDm = [...document.fonts].some((f) => /DM Sans|Newsreader/i.test(f.family));
+        if (hasDm) document.documentElement.classList.add('fonts-dm');
+      });
+    }
+  } catch {
+    /* */
+  }
+}
+
 async function boot() {
   const root = document.getElementById('app');
   if (!root) return;
@@ -22,6 +36,7 @@ async function boot() {
     return;
   }
   try {
+    markWebfontsWhenReady();
     initPwa();
     await openDb();
     await mountApp(root);

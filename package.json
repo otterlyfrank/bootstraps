@@ -1,13 +1,14 @@
 {
   "name": "bootstraps",
-  "version": "1.8.0",
+  "version": "1.10.0",
   "private": false,
   "type": "module",
   "description": "Local-first job hunt optimization — dual resumes, tracking, and rejection learning loops",
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "start": "python3 scripts/bootstraps_server.py --host 127.0.0.1 --port 8792",
-    "serve": "python3 scripts/bootstraps_server.py --host 127.0.0.1 --port 8792"
+    "serve": "python3 scripts/bootstraps_server.py --host 127.0.0.1 --port 8792",
+    "test": "node tests/run.mjs"
   },
   "keywords": [
     "jobs",
