@@ -70,16 +70,23 @@ Then install from the browser as above.
 
 ---
 
-## Job discovery
+## Job discovery (robust)
 
 | Path | How |
 |------|-----|
-| **Paste links** | Job board → **Paste links** — dump Greenhouse / Lever / Ashby / LinkedIn / career-page URLs (one per line, or `Title \| url`, or markdown). Local server fetches each page, extracts title/company/description, scores vs Working resume. |
-| **Remotive** | **Fetch Remotive** — public remote board API. |
+| **Discover** | Multi-board: **Remotive**, **Remote OK**, **Arbeitnow**, **Jobicy**, optional **Himalayas**. Keyword search (defaults from Profile skills). Parallel fetch on your machine, score, dedupe. |
+| **Paste links** | Dump Greenhouse / Lever / Ashby / LinkedIn / career URLs. ATS URLs use public JSON APIs when possible; else HTML extract. Batch fetch. |
+| **Remotive only** | Single-board shortcut. |
 | **Bulk import** | Structured paste (Title/Company/URL blocks, TSV, JSON). Pure URL lists auto-route to Paste links. |
 | **Manual** | One-off title + company + URL + JD. |
 
-`./start.sh` runs `scripts/bootstraps_server.py` (static files **+** `POST /api/job-fetch`). Plain `python -m http.server` still serves the UI but cannot fetch pages (CORS); link import falls back to URL stubs.
+`./start.sh` runs `scripts/bootstraps_server.py`:
+
+- `POST /api/discover` — multi-source boards  
+- `POST /api/job-fetch` / `/api/job-fetch-batch` — link resolve  
+- Static UI  
+
+Plain `python -m http.server` serves UI only (no discovery APIs).
 
 ---
 
