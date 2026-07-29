@@ -124,7 +124,11 @@ function onGlobalKeydown(e) {
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key.toLowerCase();
-  if (k === 'h') {
+  if (k === 't') {
+    e.preventDefault();
+    state.view = 'ats';
+    render();
+  } else if (k === 'h') {
     e.preventDefault();
     state.view = 'jobs';
     render();
@@ -151,7 +155,7 @@ function onGlobalKeydown(e) {
     refreshLastHunt();
   } else if (k === '?' || k === '/') {
     e.preventDefault();
-    toast('Keys: H hunt · U upload · J jobs · A apps · D dashboard · R refresh hunt', 'ok');
+    toast('Keys: H hunt · T ATS · U upload · J jobs · A pipeline · D home · R refresh', 'ok');
   }
 }
 
@@ -379,17 +383,21 @@ function render() {
         <img class="brand-logo" src="./public/bootstraps-logo.jpg" alt="" width="52" height="52" />
         <div>
           <h1>${APP_NAME}</h1>
-          <p>Hunt · learn · climb</p>
+          <p>Hunt · ATS · climb</p>
         </div>
       </div>
-      ${navBtn('dashboard', 'Dashboard')}
-      ${navBtn('digest', 'Recommended')}
-      ${navBtn('jobs', 'Job board')}
-      ${navBtn('applications', 'Applications')}
+      ${navBtn('dashboard', 'Home')}
+      ${navBtn('jobs', 'Hunt')}
+      ${navBtn('ats', 'ATS')}
+      ${navBtn('applications', 'Pipeline')}
       ${navBtn('resumes', 'Resumes')}
-      ${navBtn('domains', 'Domain intel')}
-      ${navBtn('profile', 'Profile')}
       ${navBtn('settings', 'Settings')}
+      <details class="nav-more ${['digest','domains','profile'].includes(state.view) ? 'open' : ''}">
+        <summary class="nav-more-sum">More</summary>
+        ${navBtn('digest', 'Recommended')}
+        ${navBtn('domains', 'Domain intel')}
+        ${navBtn('profile', 'Profile')}
+      </details>
       <div class="sidebar-foot">
         <p>Local-first · optional Grok</p>
         <p class="usage-chip" style="display:inline-block;margin-top:0.35rem">
@@ -427,6 +435,7 @@ function render() {
     dashboard: renderDashboard,
     digest: renderDigest,
     jobs: renderJobs,
+    ats: renderAts,
     applications: renderApplications,
     resumes: renderResumes,
     domains: renderDomains,
@@ -460,13 +469,14 @@ function navBtn(id, label) {
 
 function viewTitle() {
   const t = {
-    dashboard: 'Dashboard',
-    digest: 'Recommended applications',
-    jobs: 'Job board',
-    applications: 'Applications',
-    resumes: 'Dual resumes',
-    domains: 'Domain intelligence',
-    profile: 'Profile & targeting',
+    dashboard: 'Home',
+    digest: 'Recommended',
+    jobs: 'Hunt',
+    ats: 'ATS generator',
+    applications: 'Pipeline',
+    resumes: 'Resumes',
+    domains: 'Domain intel',
+    profile: 'Profile',
     settings: 'Settings',
   };
   return t[state.view] || 'Bootstraps';
@@ -815,11 +825,19 @@ function renderJobs(root, actions) {
   const hideDb = state.settings?.hideDealBreakers !== false;
   const lastHunt = state.settings?.lastHunt;
   actions.innerHTML = `
-    ${lastHunt ? `<button type="button" class="btn primary" id="j-refresh">Refresh hunt</button>` : ''}
+    ${lastHunt ? `<button type="button" class="btn" id="j-refresh" title="Re-run last hunt">Refresh</button>` : ''}
     <button type="button" class="btn primary" id="j-discover">Hunt</button>
-    <button type="button" class="btn" id="j-links">Paste links</button>
-    <button type="button" class="btn" id="j-bulk">Bulk import</button>
-    <button type="button" class="btn" id="j-manual">Add manual</button>
+    <button type="button" class="btn" id="j-links">Links</button>
+    <div class="topbar-more">
+      <details>
+        <summary class="btn">More</summary>
+        <div class="topbar-menu">
+          <button type="button" class="btn ghost" id="j-bulk">Bulk import</button>
+          <button type="button" class="btn ghost" id="j-manual">Add manual</button>
+          <button type="button" class="btn ghost" id="j-ats">Open ATS page</button>
+        </div>
+      </details>
+    </div>
   `;
   let jobs = visibleJobs(state.jobShelf);
   const shelfBtn = (id, label, count) =>
@@ -880,6 +898,10 @@ function renderJobs(root, actions) {
   $('#j-manual').onclick = () => openManualJob();
   $('#j-bulk').onclick = () => openBulkImport();
   $('#j-links').onclick = () => openPasteLinks();
+  $('#j-ats')?.addEventListener('click', () => {
+    state.view = 'ats';
+    render();
+  });
   root.querySelectorAll('[data-shelf]').forEach((btn) => {
     btn.onclick = () => {
       state.jobShelf = btn.dataset.shelf;
@@ -1458,10 +1480,11 @@ function openManualJob() {
 
 function renderApplications(root, actions) {
   actions.innerHTML = `
-    <button type="button" class="btn ${state.appView === 'pipeline' ? 'primary' : ''}" id="a-pipe">Pipeline</button>
+    <button type="button" class="btn ${state.appView === 'pipeline' ? 'primary' : ''}" id="a-pipe">Board</button>
     <button type="button" class="btn ${state.appView === 'list' ? 'primary' : ''}" id="a-list">List</button>
-    <button type="button" class="btn" id="a-export">Export MD</button>
-    <button type="button" class="btn primary" id="a-new">Log application</button>
+    <button type="button" class="btn primary" id="a-ats">+ ATS pack</button>
+    <button type="button" class="btn" id="a-new">Log manual</button>
+    <button type="button" class="btn ghost" id="a-export">Export</button>
   `;
   let apps = state.applications;
   if (state.appDomain) apps = apps.filter((a) => a.domain === state.appDomain);
@@ -1484,7 +1507,7 @@ function renderApplications(root, actions) {
       ${
         apps.length
           ? apps.map((a) => appCardHtml(a)).join('')
-          : `<div class="empty"><h3>No applications logged</h3><p>Log from a job card or add manually.</p></div>`
+          : `<div class="empty"><h3>No applications yet</h3><p>Use <strong>ATS</strong> to generate a tailored pack, or log from Hunt.</p></div>`
       }
     </div>`;
 
@@ -1509,6 +1532,7 @@ function renderApplications(root, actions) {
     state.appView = 'list';
     render();
   };
+  $('#a-ats')?.addEventListener('click', () => { state.view = 'ats'; render(); });
   $('#a-new').onclick = () => openAppEditor(null);
   $('#a-export').onclick = () => {
     downloadText('bootstraps-applications.md', applicationsToMarkdown(state.applications), 'text/markdown');
@@ -1530,7 +1554,7 @@ function renderApplications(root, actions) {
 
 function pipelineHtml(apps) {
   if (!state.applications.length) {
-    return `<div class="empty"><h3>No applications yet</h3><p>Log from a job card — then drag across the board as outcomes change.</p></div>`;
+    return `<div class="empty"><h3>No applications yet</h3><p>Generate via <strong>ATS</strong> or log from Hunt — then drag across the board.</p></div>`;
   }
   const cols = APPLICATION_STATUSES;
   return `
@@ -1566,6 +1590,7 @@ function pipelineCardHtml(a) {
       <div class="pipe-card-meta">
         <span class="tag">${esc(a.domain)}</span>
         ${jdLen ? '<span class="tag working">JD</span>' : '<span class="tag">No JD</span>'}
+        ${a.tailoredResume ? '<span class="tag master">ATS</span>' : ''}
       </div>
       <div class="pipe-card-actions">
         <button type="button" class="btn ghost" data-edit-app="${a.id}">Edit</button>
@@ -1589,6 +1614,8 @@ function appCardHtml(a) {
           <span class="tag">${esc(a.status)}</span>
           <span class="tag">${esc(a.domain)}</span>
           <span class="tag ${jdLen ? 'working' : ''}">${jdLen ? `JD ${jdLen.toLocaleString()} chars` : 'No JD'}</span>
+          ${a.tailoredResume ? '<span class="tag master">ATS pack</span>' : ''}
+          ${a.nextTouchAt ? `<span class="tag">Follow-up ${formatTouchDate(a.nextTouchAt)}</span>` : ''}
         </div>
         ${a.notes ? `<p class="dim" style="margin:0.4rem 0 0">${esc(a.notes.slice(0, 180))}</p>` : ''}
       </div>
@@ -1867,6 +1894,275 @@ function openJobDrawer(jobId, opts = {}) {
     await reloadAll();
     openJobDrawer(job.id, { host });
   });
+}
+
+
+// ── ATS generator (master → tailored, save to pipeline) ─────
+
+function masterResumeBody() {
+  return state.master?.body || state.working?.body || '';
+}
+
+function renderAts(root, actions) {
+  actions.innerHTML = `
+    <button type="button" class="btn" id="ats-to-pipe">Open pipeline</button>
+  `;
+  const hasMaster = !!masterResumeBody().trim();
+  const hasKey = !!(state.settings?.llmApiKey || '').trim();
+  const prefill = state.atsDraft || { url: '', title: '', company: '', description: '', domain: '' };
+
+  root.innerHTML = `
+    <div class="ats-layout">
+      <div class="card ats-form-card">
+        <h3 style="margin:0 0 0.35rem;font-family:var(--serif)">ATS-ready resume</h3>
+        <p class="muted" style="margin:0 0 0.85rem">
+          Paste a job <strong>link</strong> and/or <strong>description</strong>. We tailor your
+          <span class="tag master">Master</span> resume for ATS keyword fit, then save it to your
+          <strong>Pipeline</strong> (applications list).
+        </p>
+        ${
+          !hasMaster
+            ? `<div class="banner warn"><p style="margin:0">Upload a Master resume first (Resumes tab).</p>
+               <button type="button" class="btn primary" id="ats-go-resume">Upload resume</button></div>`
+            : ''
+        }
+        <div class="field">
+          <label>Job URL <span class="dim">(optional — fetch fills title/company/JD when possible)</span></label>
+          <div class="row-actions" style="gap:0.4rem">
+            <input id="ats-url" value="${esc(prefill.url)}" placeholder="https://boards.greenhouse.io/… or any job link" style="flex:1" />
+            <button type="button" class="btn" id="ats-fetch" ${!hasMaster ? 'disabled' : ''}>Fetch</button>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="field"><label>Title</label><input id="ats-title" value="${esc(prefill.title)}" placeholder="e.g. Data Analyst" /></div>
+          <div class="field"><label>Company</label><input id="ats-company" value="${esc(prefill.company)}" placeholder="e.g. Acme" /></div>
+        </div>
+        <div class="field">
+          <label>Domain</label>
+          <select id="ats-domain">
+            ${(state.settings.domains || [])
+              .map((d) => `<option value="${esc(d)}" ${prefill.domain === d ? 'selected' : ''}>${esc(d)}</option>`)
+              .join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label>Job description</label>
+          <textarea id="ats-jd" rows="12" placeholder="Paste the full JD here for best ATS keyword alignment…">${esc(prefill.description)}</textarea>
+        </div>
+        <label class="check-inline" style="margin-bottom:0.75rem">
+          <input type="checkbox" id="ats-cover" checked /> Include short cover note
+        </label>
+        <div class="row-actions" style="flex-wrap:wrap;gap:0.5rem">
+          <button type="button" class="btn" id="ats-local" ${!hasMaster ? 'disabled' : ''}>Local prep (free)</button>
+          <button type="button" class="btn primary" id="ats-grok" ${!hasMaster || !hasKey ? 'disabled' : ''} title="${hasKey ? '' : 'Add API key in Settings'}">Generate with Grok</button>
+        </div>
+        <p class="dim" id="ats-status" style="margin:0.65rem 0 0">
+          ${hasKey ? 'Grok ready.' : 'No API key — local prep still works; add key in Settings for full ATS rewrite.'}
+        </p>
+      </div>
+
+      <div class="card ats-out-card">
+        <h3 style="margin:0 0 0.35rem;font-family:var(--serif)">Output</h3>
+        <p class="dim" id="ats-summary" style="margin:0 0 0.65rem">Generate to see tailored resume.</p>
+        <div class="field"><label>ATS resume</label><textarea id="ats-resume" rows="16" placeholder="Tailored resume appears here…"></textarea></div>
+        <div class="field"><label>Cover note</label><textarea id="ats-note" rows="5" placeholder="Optional cover note…"></textarea></div>
+        <div class="row-actions" style="flex-wrap:wrap;gap:0.5rem">
+          <button type="button" class="btn" id="ats-copy">Copy resume</button>
+          <button type="button" class="btn" id="ats-export">Export MD</button>
+          <button type="button" class="btn primary" id="ats-save">Save to Pipeline</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  $('#ats-to-pipe').onclick = () => {
+    state.view = 'applications';
+    render();
+  };
+  $('#ats-go-resume')?.addEventListener('click', () => {
+    state.view = 'resumes';
+    render();
+  });
+
+  const readJob = () => ({
+    title: $('#ats-title').value.trim() || 'Untitled role',
+    company: $('#ats-company').value.trim() || '',
+    url: $('#ats-url').value.trim() || '',
+    description: $('#ats-jd').value.trim() || '',
+    domain: $('#ats-domain').value,
+    domains: [$('#ats-domain').value].filter(Boolean),
+    remote: true,
+    source: 'ats',
+  });
+
+  const persistDraft = () => {
+    state.atsDraft = {
+      url: $('#ats-url').value,
+      title: $('#ats-title').value,
+      company: $('#ats-company').value,
+      description: $('#ats-jd').value,
+      domain: $('#ats-domain').value,
+    };
+  };
+  ['ats-url', 'ats-title', 'ats-company', 'ats-jd', 'ats-domain'].forEach((id) => {
+    $(`#${id}`)?.addEventListener('change', persistDraft);
+    $(`#${id}`)?.addEventListener('input', persistDraft);
+  });
+
+  $('#ats-fetch').onclick = async () => {
+    const url = $('#ats-url').value.trim();
+    if (!url) {
+      toast('Paste a job URL first', 'err');
+      return;
+    }
+    const status = $('#ats-status');
+    status.textContent = 'Fetching listing…';
+    try {
+      const { fetchJobFromLink } = await import('./jobs/links.js');
+      const stub = await fetchJobFromLink(url, {});
+      if (stub.title) $('#ats-title').value = stub.title;
+      if (stub.company) $('#ats-company').value = stub.company;
+      if (stub.description) $('#ats-jd').value = stub.description;
+      persistDraft();
+      status.textContent = stub.fetchError
+        ? `Fetched with gaps (${stub.fetchError}). Paste JD if thin.`
+        : 'Listing loaded — review fields, then generate.';
+      toast('Job fields filled', 'ok');
+    } catch (err) {
+      status.textContent = err.message || String(err);
+      toast(err.message || String(err), 'err');
+    }
+  };
+
+  const runLocal = () => {
+    const job = readJob();
+    if (!job.description && !job.url) {
+      toast('Add a job description or URL', 'err');
+      return;
+    }
+    const pack = buildLocalPrep({
+      workingResume: masterResumeBody(),
+      job,
+      profile: state.profile,
+    });
+    $('#ats-resume').value = pack.tailoredResume;
+    $('#ats-note').value = $('#ats-cover').checked ? pack.coverNote : '';
+    $('#ats-summary').textContent = pack.changesSummary + ' · local (no API)';
+    toast('Local ATS pack ready', 'ok');
+  };
+
+  const runGrok = async () => {
+    const job = readJob();
+    if (!job.description || job.description.length < 40) {
+      toast('Paste a fuller job description for Grok ATS rewrite', 'err');
+      return;
+    }
+    if (!state.settings?.llmApiKey) {
+      toast('Add API key in Settings', 'err');
+      return;
+    }
+    const includeCover = $('#ats-cover').checked;
+    const { system, user } = prepareApplicationPrompt({
+      workingResume: masterResumeBody(),
+      job,
+      profile: state.profile,
+      includeCover,
+    });
+    // Bias prompt toward master + ATS in user message note
+    const userAts =
+      user +
+      `\n\nIMPORTANT: Base resume above is the MASTER resume. Optimize for ATS parsing: clear headings, standard section names, keyword density from the JD without inventing experience.`;
+    const btn = $('#ats-grok');
+    const status = $('#ats-status');
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+    status.textContent = 'Grok is writing ATS-ready resume from Master…';
+    try {
+      const { content } = await chatCompletion({
+        baseUrl: state.settings.llmBaseUrl,
+        apiKey: state.settings.llmApiKey,
+        model: state.settings.fastModel || AI_DEFAULTS.fastModel,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: userAts },
+        ],
+        purpose: 'ats_generate',
+        tier: 'fast',
+      });
+      const parsed = parseModelJson(content);
+      $('#ats-resume').value = parsed.tailoredResume || content;
+      $('#ats-note').value = includeCover ? parsed.coverNote || '' : '';
+      $('#ats-summary').textContent = (parsed.changesSummary || 'ATS resume ready') + ' · via Grok · Master base';
+      state.usage = await getUsageSummary();
+      toast('ATS resume ready', 'ok');
+      status.textContent = 'Done — copy, export, or save to Pipeline.';
+    } catch (err) {
+      status.textContent = err.message || String(err);
+      toast(err.message || String(err), 'err');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Generate with Grok';
+    }
+  };
+
+  $('#ats-local').onclick = runLocal;
+  $('#ats-grok').onclick = runGrok;
+
+  $('#ats-copy').onclick = async () => {
+    const text = $('#ats-resume').value || '';
+    if (!text.trim()) {
+      toast('Nothing to copy yet', 'err');
+      return;
+    }
+    await navigator.clipboard.writeText(text);
+    toast('Copied ATS resume', 'ok');
+  };
+  $('#ats-export').onclick = () => {
+    const job = readJob();
+    const resume = $('#ats-resume').value || '';
+    const note = $('#ats-note').value || '';
+    if (!resume.trim()) {
+      toast('Generate first', 'err');
+      return;
+    }
+    const md = `# ATS pack — ${job.title} @ ${job.company}\n\nURL: ${job.url || '—'}\n\n## Cover note\n\n${note || '_none_'}\n\n## ATS resume\n\n${resume}\n`;
+    downloadText(
+      `ats-${(job.company || 'role').replace(/\s+/g, '-').slice(0, 40)}.md`,
+      md,
+      'text/markdown'
+    );
+    toast('Exported', 'ok');
+  };
+  $('#ats-save').onclick = async () => {
+    const job = readJob();
+    const tailored = $('#ats-resume').value.trim();
+    if (!tailored) {
+      toast('Generate an ATS resume first', 'err');
+      return;
+    }
+    if (!job.title || job.title === 'Untitled role') {
+      if (!confirm('Title is empty/Untitled — save anyway?')) return;
+    }
+    await putApplication({
+      jobId: null,
+      title: job.title,
+      company: job.company,
+      url: job.url,
+      domain: job.domain || 'Other',
+      status: 'Applied',
+      notes: 'ATS pack from generator',
+      jobDescription: job.description || '',
+      tailoredResume: tailored,
+      coverNote: $('#ats-note').value || '',
+      resumeBase: 'master',
+      nextTouchAt: daysFromNow(7),
+    });
+    state.atsDraft = null;
+    await reloadAll();
+    toast('Saved to Pipeline', 'ok');
+    state.view = 'applications';
+    render();
+  };
 }
 
 // ── Prepare application (local free + optional Grok) ───────

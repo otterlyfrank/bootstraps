@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.8.0 — 2026-07-29
+
+### ATS generator page + leaner UI
+
+- New **ATS** nav page: paste job URL + JD → Master resume → local or Grok ATS pack → **Save to Pipeline**
+- Fetch listing from URL; copy/export; cover note optional
+- Streamlined sidebar (Home · Hunt · ATS · Pipeline · Resumes · Settings; More for Recommended/Domains/Profile)
+- Job board overflow menu for bulk/manual; pipeline **+ ATS pack**
+- Keyboard **T** opens ATS
+
+---
+
 ## 1.7.0 — 2026-07-29
 
 ### Tier 4 — presets, wizard, source health
