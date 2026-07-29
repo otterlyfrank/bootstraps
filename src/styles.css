@@ -1,44 +1,62 @@
-/* Bootstraps — calm job-hunt cockpit */
+/* Bootstraps — eye-comfort job-hunt cockpit
+ *
+ * Palette principles (long sessions):
+ * - No pure black/white (extreme contrast → more glare & fatigue)
+ * - Warm-biased darks (slightly less blue) to ease digital eye strain
+ * - Body text ~5–7:1 contrast (readable, not harsh)
+ * - Soft sage accent, desaturated status colors
+ * - Slightly larger line-height for scanning JDs/resumes
+ */
 
 :root {
-  --bg: #0f1210;
-  --bg-elev: #171b18;
-  --bg-soft: #1e2420;
-  --border: #2c342e;
-  --text: #e8eee9;
-  --muted: #9aa89d;
-  --dim: #6b776e;
-  --accent: #6bcf8e;
-  --accent-soft: rgba(107, 207, 142, 0.12);
-  --warn: #e0b45c;
-  --warn-soft: rgba(224, 180, 92, 0.14);
-  --danger: #d47878;
-  --danger-soft: rgba(212, 120, 120, 0.12);
-  --master: #7eb6ff;
-  --working: #6bcf8e;
+  /* Warm charcoal base — not #000, not cold blue-gray */
+  --bg: #161411;
+  --bg-elev: #1e1b17;
+  --bg-soft: #26221d;
+  --border: #3a342c;
+  /* Paper-warm text, not pure white */
+  --text: #e4ddd2;
+  --muted: #a89f91;
+  --dim: #7a7268;
+  /* Soft sage — readable accent without neon */
+  --accent: #8fad8a;
+  --accent-soft: rgba(143, 173, 138, 0.14);
+  --warn: #c9a66b;
+  --warn-soft: rgba(201, 166, 107, 0.14);
+  --danger: #c4877e;
+  --danger-soft: rgba(196, 135, 126, 0.12);
+  --master: #8eabcc;
+  --working: #8fad8a;
   --radius: 12px;
   --radius-sm: 8px;
   --font: "DM Sans", system-ui, sans-serif;
   --serif: "Newsreader", Georgia, serif;
-  --shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  --shadow: 0 12px 36px rgba(12, 10, 8, 0.4);
   --sidebar: 15rem;
+  --focus-ring: rgba(143, 173, 138, 0.45);
+  --selection: rgba(143, 173, 138, 0.28);
 }
 
 [data-theme="light"] {
-  --bg: #f4f7f4;
-  --bg-elev: #ffffff;
-  --bg-soft: #e8eee9;
-  --border: #d0dbd3;
-  --text: #152018;
-  --muted: #4d5c52;
-  --dim: #7a8a7e;
-  --accent: #1f8a4c;
-  --accent-soft: rgba(31, 138, 76, 0.1);
-  --warn: #a67c1a;
-  --danger: #b54545;
-  --master: #2a6fdb;
-  --working: #1f8a4c;
-  --shadow: 0 10px 28px rgba(20, 40, 25, 0.08);
+  /* Warm paper, not pure white — easier under office lighting */
+  --bg: #f3efe6;
+  --bg-elev: #faf7f1;
+  --bg-soft: #e8e2d6;
+  --border: #d4cbbd;
+  --text: #2a261f;
+  --muted: #5c564c;
+  --dim: #7a7368;
+  --accent: #4a6b48;
+  --accent-soft: rgba(74, 107, 72, 0.12);
+  --warn: #8a6a2e;
+  --warn-soft: rgba(138, 106, 46, 0.12);
+  --danger: #9a4f48;
+  --danger-soft: rgba(154, 79, 72, 0.1);
+  --master: #3d5f8a;
+  --working: #4a6b48;
+  --shadow: 0 10px 28px rgba(42, 38, 31, 0.07);
+  --focus-ring: rgba(74, 107, 72, 0.4);
+  --selection: rgba(74, 107, 72, 0.2);
 }
 
 *,
@@ -54,9 +72,20 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: 15.5px;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--selection);
+  color: var(--text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 body {
@@ -1210,6 +1239,62 @@ select {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--text);
+}
+
+/* Settings API guide */
+.setup-guide-box {
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+}
+
+.setup-guide-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.setup-steps {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.setup-steps li {
+  margin-bottom: 0.55rem;
+}
+
+.setup-steps ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--muted);
+}
+
+.setup-steps a {
+  color: var(--accent);
+}
+
+.setup-steps code {
+  font-size: 0.84em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+}
+
+.setup-note {
+  margin: 0.75rem 0 0;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.settings-api-card h3 {
+  margin-top: 0;
 }
 
 /* Job discovery */
