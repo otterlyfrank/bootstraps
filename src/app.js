@@ -147,6 +147,20 @@ export async function mountApp(root) {
   restoreSessionPrepared();
   render();
   // Re-render when browser becomes installable / after install
+  window.addEventListener('bootstraps-toast', (e) => {
+    const d = e.detail || {};
+    if (d.msg) toast(d.msg, d.kind || 'ok');
+  });
+  window.addEventListener('bootstraps-open-install', () => {
+    state.view = 'settings';
+    render();
+    requestAnimationFrame(() => {
+      const card = document.getElementById('pwa-install-card');
+      const howto = document.getElementById('pwa-howto');
+      if (howto) howto.hidden = false;
+      card?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  });
   window.addEventListener('bootstraps-pwa-change', () => {
     if (rootEl) render();
   });
@@ -591,7 +605,7 @@ function buildShell() {
     <a class="skip-link" href="#view-root">Skip to content</a>
     <aside class="sidebar" aria-label="Sidebar">
       <div class="brand">
-        <img class="brand-logo" src="./public/bootstraps-mark.svg" alt="" width="52" height="52" />
+        <img class="brand-logo" src="./public/bootstraps-mark.svg" alt="Bootstraps work boot" width="52" height="52" />
         <div>
           <h1>${APP_NAME}</h1>
           <p>Hunt · ATS · climb</p>
@@ -871,7 +885,7 @@ function renderDashboard(root, actions) {
   if (!onboard.complete && !hasJobs) {
     root.innerHTML = `
       <section class="hero">
-        <img class="hero-logo" src="./public/bootstraps-mark.svg" alt="Bootstraps" />
+        <img class="hero-logo" src="./public/bootstraps-mark.svg" alt="Work boot — Bootstraps mark" />
         <div class="hero-copy">
           <p class="hero-kicker">${esc(APP_NAME)}</p>
           <h2 class="hero-tagline">${esc(APP_TAGLINE)}</h2>
@@ -930,7 +944,7 @@ function renderDashboard(root, actions) {
 
   root.innerHTML = `
     <section class="hero compact-hero">
-      <img class="hero-logo" src="./public/bootstraps-mark.svg" alt="" />
+      <img class="hero-logo" src="./public/bootstraps-mark.svg" alt="Work boot — Bootstraps mark" />
       <div class="hero-copy">
         <p class="hero-kicker">Daily loop</p>
         <h2 class="hero-tagline">Hunt · shortlist · prepare · follow up</h2>
