@@ -41,7 +41,13 @@ export const DEFAULT_SETTINGS = {
   lastJobFetchAt: 0,
   minJobScore: 35,
   hideDealBreakers: true,
+  /** When true, min score applies even on "All scored" shelf */
+  hardScoreFilter: false,
   lastHunt: null,
+  /** Named hunt presets: { id, name, queries, sources, minScore, limit, createdAt }[] */
+  huntPresets: [],
+  /** Wizard completed */
+  onboardingDone: false,
   /** Donation / support links — shown in-app so users who land jobs can give back */
   supportGithubSponsors: 'https://github.com/sponsors',
   supportKofi: 'https://ko-fi.com',

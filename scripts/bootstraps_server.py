@@ -767,6 +767,27 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/sources":
             self._json(200, {"ok": True, "sources": SOURCE_CATALOG})
             return
+        if path == "/api/source-health":
+            # Quick probe: 1–3 jobs per source, parallel
+            health: dict[str, Any] = {}
+
+            def probe(sid: str) -> tuple[str, dict]:
+                fn = SOURCE_FN.get(sid)
+                if not fn:
+                    return sid, {"ok": False, "error": "unknown", "count": 0}
+                try:
+                    batch = fn(search="", limit=3)
+                    return sid, {"ok": True, "count": len(batch or []), "error": None}
+                except Exception as e:
+                    return sid, {"ok": False, "count": 0, "error": str(e) or e.__class__.__name__}
+
+            with ThreadPoolExecutor(max_workers=min(6, len(SOURCE_FN))) as pool:
+                futs = [pool.submit(probe, sid) for sid in SOURCE_FN]
+                for fut in as_completed(futs):
+                    sid, info = fut.result()
+                    health[sid] = info
+            self._json(200, {"ok": True, "health": health, "at": __import__("time").time()})
+            return
         if path == "/api/job-fetch":
             qs = urllib.parse.parse_qs(parsed.query or "")
             url = (qs.get("url") or [""])[0]

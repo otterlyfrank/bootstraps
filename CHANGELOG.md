@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.7.0 — 2026-07-29
+
+### Tier 4 — presets, wizard, source health
+
+- **Guided setup wizard** (auto on first incomplete setup; Settings → Replay)
+- **Named hunt presets** — save/load/delete on Job board; export/import JSON + run from Settings
+- **Source health** dots on discovery (probe each board)
+- **Hard score filter** — min score applies to All scored shelf when enabled
+
+---
+
 ## 1.6.0 — 2026-07-29
 
 ### Tier 1–3 polish

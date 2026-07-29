@@ -1603,3 +1603,35 @@ select {
   border: 1px solid var(--border);
   background: var(--bg-soft);
 }
+
+/* Tier 4 — presets, health, wizard */
+.src-health {
+  font-size: 0.7rem;
+  margin-left: 0.25rem;
+  opacity: 0.7;
+}
+.src-health.ok { color: var(--accent); opacity: 1; }
+.src-health.err { color: var(--danger); opacity: 1; }
+.presets-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.preset-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+}
+.wizard-modal {
+  max-width: 28rem;
+}
+label.btn {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
