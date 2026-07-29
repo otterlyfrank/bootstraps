@@ -2035,20 +2035,71 @@ function renderSettings(root, actions) {
   `;
   const s = state.settings;
   root.innerHTML = `
-    <div class="card" style="max-width:36rem">
+    <div class="card" style="max-width:40rem">
       <h3>Appearance</h3>
+      <p class="muted" style="margin-top:0">Warm, soft-contrast palette tuned for long sessions (no pure black/white, reduced blue glare). Pick the mode that matches your room lighting.</p>
       <div class="field"><label>Theme</label>
-        <select id="s-theme"><option value="dark" ${s.theme !== 'light' ? 'selected' : ''}>Dark</option><option value="light" ${s.theme === 'light' ? 'selected' : ''}>Light</option></select>
+        <select id="s-theme">
+          <option value="dark" ${s.theme !== 'light' ? 'selected' : ''}>Dark (evening / low light)</option>
+          <option value="light" ${s.theme === 'light' ? 'selected' : ''}>Light (day / bright room)</option>
+        </select>
       </div>
     </div>
-    <div class="card" style="max-width:36rem;margin-top:1rem">
-      <h3>Grok / OpenAI-compatible API</h3>
-      <p class="muted">Key stays in IndexedDB on this browser only. Fast model for prep; deep for domain analysis.</p>
-      <div class="field"><label>Base URL</label><input id="s-url" value="${esc(s.llmBaseUrl || '')}" placeholder="https://api.x.ai/v1" /></div>
-      <div class="field"><label>API key</label><input id="s-key" type="password" value="${esc(s.llmApiKey || '')}" /></div>
-      <div class="field"><label>Fast model</label><input id="s-fast" value="${esc(s.fastModel || '')}" /></div>
-      <div class="field"><label>Deep model</label><input id="s-deep" value="${esc(s.deepModel || '')}" /></div>
-      <button type="button" class="btn" id="s-test">Test connection</button>
+
+    <div class="card settings-api-card" style="max-width:40rem;margin-top:1rem">
+      <h3>Grok / xAI API setup</h3>
+      <p class="muted" style="margin-top:0">Powers resume ingest, Prepare polish, and domain analysis. Your key stays in <strong>this browser’s IndexedDB only</strong> — never sent to Bootstraps (there is no Bootstraps cloud).</p>
+
+      <div class="setup-guide-box">
+        <h4 class="setup-guide-title">Quick start (≈ 2 minutes)</h4>
+        <ol class="setup-steps">
+          <li>
+            <strong>Create an xAI account</strong> at
+            <a href="https://console.x.ai" target="_blank" rel="noopener">console.x.ai</a>
+            (sign in with the account you use for Grok / xAI).
+          </li>
+          <li>
+            Open <strong>API Keys</strong> (or <strong>Keys</strong>) in the console and
+            <strong>Create API key</strong>. Copy it once — it won’t be shown again in full.
+          </li>
+          <li>
+            Confirm billing / credits are enabled if the console asks (API usage is separate from
+            SuperGrok chat subscription).
+          </li>
+          <li>
+            Paste below:
+            <ul>
+              <li><strong>Base URL</strong> — leave as <code>https://api.x.ai/v1</code></li>
+              <li><strong>API key</strong> — paste the key from step 2</li>
+              <li><strong>Fast model</strong> — prep &amp; resume parse (cheaper)</li>
+              <li><strong>Deep model</strong> — rejection / domain analysis</li>
+            </ul>
+          </li>
+          <li>
+            Click <strong>Save settings</strong>, then <strong>Test connection</strong>.
+            You should see “Connection OK” (or “endpoint reachable”).
+          </li>
+          <li>
+            Go to <strong>Resumes → Upload PDF</strong> with “Use Grok assist” checked, or
+            prepare a job with polish.
+          </li>
+        </ol>
+        <p class="dim setup-note">
+          <strong>Not the same as SuperGrok.</strong> Chat access on grok.com does not automatically
+          unlock the API — you need a key from console.x.ai.
+          Other OpenAI-compatible providers work too (change Base URL + model ids).
+          Docs: <a href="https://docs.x.ai" target="_blank" rel="noopener">docs.x.ai</a>
+        </p>
+      </div>
+
+      <div class="field"><label>Base URL</label><input id="s-url" value="${esc(s.llmBaseUrl || '')}" placeholder="https://api.x.ai/v1" autocomplete="off" /></div>
+      <div class="field"><label>API key</label><input id="s-key" type="password" value="${esc(s.llmApiKey || '')}" placeholder="xai-…" autocomplete="off" /></div>
+      <div class="field"><label>Fast model</label><input id="s-fast" value="${esc(s.fastModel || '')}" placeholder="${esc(AI_DEFAULTS.fastModel)}" /></div>
+      <div class="field"><label>Deep model</label><input id="s-deep" value="${esc(s.deepModel || '')}" placeholder="${esc(AI_DEFAULTS.deepModel)}" /></div>
+      <div class="row-actions" style="gap:0.5rem;flex-wrap:wrap">
+        <button type="button" class="btn primary" id="s-test">Test connection</button>
+        <button type="button" class="btn ghost" id="s-fill-defaults">Fill xAI defaults</button>
+      </div>
       <p class="dim" id="s-test-out"></p>
       <p class="usage-chip">Approx. spend: ${formatUsd(state.usage.estCostUsd)} across ${state.usage.calls} calls (${state.usage.totalTokens} tokens). Display-only estimates.</p>
     </div>
@@ -2100,10 +2151,18 @@ function renderSettings(root, actions) {
     toast('Settings saved', 'ok');
     render();
   };
+  $('#s-fill-defaults')?.addEventListener('click', () => {
+    $('#s-url').value = AI_DEFAULTS.baseUrl;
+    if (!$('#s-fast').value.trim()) $('#s-fast').value = AI_DEFAULTS.fastModel;
+    if (!$('#s-deep').value.trim()) $('#s-deep').value = AI_DEFAULTS.deepModel;
+    toast('xAI defaults filled — paste your API key, Save, then Test', 'ok');
+  });
   $('#s-test').onclick = async () => {
     const r = await checkLlm($('#s-url').value.trim(), $('#s-key').value.trim());
-    $('#s-test-out').textContent = r.ok ? r.message : r.reason;
-    toast(r.ok ? 'OK' : r.reason, r.ok ? 'ok' : 'err');
+    $('#s-test-out').textContent = r.ok
+      ? `✓ ${r.message}`
+      : `✗ ${r.reason} — check key at console.x.ai and that Base URL is https://api.x.ai/v1`;
+    toast(r.ok ? 'Connection OK' : r.reason, r.ok ? 'ok' : 'err');
   };
   $('#s-export').onclick = async () => {
     const data = await exportAllData();

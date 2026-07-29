@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.1 — 2026-07-29
+
+### Settings API guide + eye-comfort palette
+
+- Settings: step-by-step xAI/Grok API key setup (console.x.ai), SuperGrok vs API note, fill defaults + clearer test errors
+- Soft warm dark/light themes (no pure black/white, lower blue glare, desaturated accents) for long hunt sessions
+
+---
+
 ## 1.4.0 — 2026-07-29
 
 ### Resume PDF upload + Grok population
