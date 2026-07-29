@@ -597,6 +597,27 @@ SOURCE_FN = {
 }
 
 
+def extract_resume_pdf_bytes(data: bytes) -> dict[str, Any]:
+    """Best-effort PDF text via pypdf if installed."""
+    try:
+        from pypdf import PdfReader  # type: ignore
+        import io
+
+        reader = PdfReader(io.BytesIO(data))
+        parts = []
+        for page in reader.pages:
+            parts.append(page.extract_text() or "")
+        text = "\n\n".join(parts).strip()
+        return {"ok": True, "text": text, "engine": "pypdf", "pages": len(reader.pages)}
+    except ImportError:
+        return {
+            "ok": False,
+            "error": "pypdf not installed (optional). Client-side pdf.js is primary.",
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def run_discover(sources: list[str], search: str = "", limit: int = 40) -> dict[str, Any]:
     if not sources:
         sources = [s["id"] for s in SOURCE_CATALOG if s.get("default")]
@@ -747,6 +768,49 @@ class Handler(SimpleHTTPRequestHandler):
                 limit = int(data.get("limit") or 40)
                 limit = max(5, min(limit, 80))
                 self._json(200, run_discover(sources, search=search, limit=limit))
+                return
+            if path == "/api/extract-resume":
+                # multipart/form-data file field "file"
+                ctype = self.headers.get("Content-Type") or ""
+                if "multipart/form-data" not in ctype:
+                    self._json(400, {"ok": False, "error": "expected multipart form with file"})
+                    return
+                n = int(self.headers.get("Content-Length") or 0)
+                body = self.rfile.read(n) if n else b""
+                # crude boundary parse
+                m = re.search(r"boundary=(.+)", ctype)
+                if not m:
+                    self._json(400, {"ok": False, "error": "no boundary"})
+                    return
+                boundary = m.group(1).strip().encode()
+                parts = body.split(b"--" + boundary)
+                file_bytes = b""
+                filename = ""
+                for part in parts:
+                    if b"Content-Disposition" not in part:
+                        continue
+                    if b'name="file"' not in part and b"name=file" not in part:
+                        continue
+                    fm = re.search(br'filename="([^"]+)"', part)
+                    if fm:
+                        filename = fm.group(1).decode("utf-8", errors="replace")
+                    idx = part.find(b"\r\n\r\n")
+                    if idx < 0:
+                        continue
+                    file_bytes = part[idx + 4 :].rstrip(b"\r\n-")
+                    break
+                if not file_bytes:
+                    self._json(400, {"ok": False, "error": "file field missing"})
+                    return
+                if filename.lower().endswith(".pdf") or file_bytes[:4] == b"%PDF":
+                    self._json(200, extract_resume_pdf_bytes(file_bytes))
+                    return
+                # plain text
+                try:
+                    text = file_bytes.decode("utf-8", errors="replace")
+                    self._json(200, {"ok": True, "text": text, "engine": "utf-8"})
+                except Exception as e:
+                    self._json(400, {"ok": False, "error": str(e)})
                 return
             self._json(404, {"ok": False, "error": "not found"})
         except Exception as e:

@@ -49,6 +49,7 @@ import { domainPerformance, appsForDomain } from './jobs/learning.js';
 import { buildLocalPrep } from './jobs/hints.js';
 import { chatCompletion, checkLlm, formatUsd } from './ai/client.js';
 import { prepareApplicationPrompt, domainFailurePrompt, parseModelJson } from './ai/prompts.js';
+import { ingestResumeFile } from './resume/ingest.js';
 import {
   downloadText,
   downloadJson,
@@ -179,7 +180,7 @@ function onboardingSteps() {
   const steps = [
     {
       id: 'resume',
-      label: 'Paste Master Resume (Working can copy from it)',
+      label: 'Upload PDF resume (or paste) — Grok fills profile',
       done: hasMaster || hasWorking,
       view: 'resumes',
     },
@@ -348,6 +349,7 @@ function viewTitle() {
 function renderDashboard(root, actions) {
   actions.innerHTML = `
     <button type="button" class="btn" id="d-sample">Load sample data</button>
+    <button type="button" class="btn primary" id="d-upload">Upload resume</button>
     <button type="button" class="btn primary" id="d-discover">Discover jobs</button>
     <button type="button" class="btn primary" id="d-links">Paste links</button>
     <button type="button" class="btn" id="d-fetch">Remotive only</button>
@@ -458,6 +460,11 @@ function renderDashboard(root, actions) {
     } catch (err) {
       toast(err.message || String(err), 'err');
     }
+  };
+  $('#d-upload').onclick = () => {
+    state.view = 'resumes';
+    render();
+    requestAnimationFrame(() => $('#resume-file')?.click());
   };
   $('#d-discover').onclick = () => {
     state.view = 'jobs';
@@ -1418,6 +1425,7 @@ async function prepareForJob(jobId) {
 
 function renderResumes(root, actions) {
   actions.innerHTML = `
+    <button type="button" class="btn primary" id="r-upload">Upload resume (PDF)</button>
     <button type="button" class="btn" id="r-diff">Master ↔ Working diff</button>
     <button type="button" class="btn" id="r-export">Export MD</button>
     <button type="button" class="btn" id="r-clone">Working ← Master</button>
@@ -1427,6 +1435,27 @@ function renderResumes(root, actions) {
       <span class="tag master">Master</span> stable reference ·
       <span class="tag working">Working</span> evolves from rejections & accepted suggestions
     </p>
+    <div class="card resume-upload-card" id="resume-upload-card">
+      <div class="resume-upload-inner">
+        <div>
+          <h3 style="margin:0 0 0.35rem;font-family:var(--serif)">Upload &amp; process resume</h3>
+          <p class="dim" style="margin:0;max-width:36rem">
+            Drop a <strong>PDF</strong> or <strong>DOCX</strong> (or <strong>.txt</strong>). Text is extracted on your machine.
+            With a Grok API key in Settings, Bootstraps structures a clean Master resume, copies Working,
+            and fills Profile (skills, keywords, domains) so discovery &amp; matching improve immediately.
+          </p>
+        </div>
+        <div class="resume-upload-actions">
+          <input type="file" id="resume-file" accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" hidden />
+          <button type="button" class="btn primary" id="resume-pick">Choose PDF / DOCX</button>
+          <label class="check-inline"><input type="checkbox" id="resume-use-grok" ${
+            state.settings?.llmApiKey ? 'checked' : ''
+          } /> Use Grok assist</label>
+        </div>
+      </div>
+      <p class="dim" id="resume-ingest-status" style="margin:0.75rem 0 0"></p>
+      <div class="resume-drop" id="resume-drop" tabindex="0">Drop resume here</div>
+    </div>
     <div id="resume-diff-host"></div>
     <div class="grid-2">
       <div class="resume-panel master">
@@ -1435,7 +1464,7 @@ function renderResumes(root, actions) {
           <button type="button" class="btn primary" id="save-master">Save master</button>
         </header>
         <div class="body">
-          <textarea class="resume-editor" id="master-body" placeholder="Paste your clean base resume…">${esc(state.master?.body || '')}</textarea>
+          <textarea class="resume-editor" id="master-body" placeholder="Upload a PDF or paste your clean base resume…">${esc(state.master?.body || '')}</textarea>
         </div>
       </div>
       <div class="resume-panel working">
@@ -1465,6 +1494,8 @@ function renderResumes(root, actions) {
       }
     </div>
   `;
+  wireResumeUpload(root);
+  $('#r-upload').onclick = () => $('#resume-file')?.click();
   $('#save-master').onclick = async () => {
     const body = $('#master-body').value;
     state.master = await saveResume('master', body);
@@ -1546,6 +1577,85 @@ function renderResumes(root, actions) {
         </div>
       </div>`;
   };
+}
+
+function wireResumeUpload(root) {
+  const fileInput = $('#resume-file', root);
+  const pick = $('#resume-pick', root);
+  const drop = $('#resume-drop', root);
+  const status = $('#resume-ingest-status', root);
+  if (!fileInput || !pick) return;
+
+  pick.onclick = () => fileInput.click();
+  fileInput.onchange = async () => {
+    const f = fileInput.files?.[0];
+    if (f) await runResumeIngest(f, status);
+    fileInput.value = '';
+  };
+
+  if (drop) {
+    const stop = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    ['dragenter', 'dragover'].forEach((ev) =>
+      drop.addEventListener(ev, (e) => {
+        stop(e);
+        drop.classList.add('drag');
+      })
+    );
+    ['dragleave', 'drop'].forEach((ev) =>
+      drop.addEventListener(ev, (e) => {
+        stop(e);
+        drop.classList.remove('drag');
+      })
+    );
+    drop.addEventListener('drop', async (e) => {
+      const f = e.dataTransfer?.files?.[0];
+      if (f) await runResumeIngest(f, status);
+    });
+    drop.addEventListener('click', () => fileInput.click());
+  }
+}
+
+async function runResumeIngest(file, statusEl) {
+  if (state.busy) return;
+  state.busy = true;
+  const setStatus = (msg) => {
+    if (statusEl) statusEl.textContent = msg;
+  };
+  setStatus(`Starting ${file.name}…`);
+  try {
+    const useGrok = $('#resume-use-grok')?.checked !== false;
+    if (useGrok && !state.settings?.llmApiKey) {
+      toast('Add Grok API key in Settings for full assist — using local parse for now', 'err');
+    }
+    const result = await ingestResumeFile(file, state.settings, {
+      useGrok,
+      onProgress: (p) => setStatus(`${p.message || ''} (${p.percent ?? 0}%)`),
+    });
+    await reloadAll();
+    const mode = result.parseMode === 'grok' ? 'Grok' : 'local';
+    const skills = result.profile?.skills?.length || 0;
+    toast(
+      `Resume ingested (${mode}) · ${result.applied?.masterChars || 0} chars · ${skills} skills · ${result.applied?.rescored || 0} jobs rescored`,
+      'ok'
+    );
+    if (result.grokError) {
+      setStatus(`Saved with local parse. Grok error: ${result.grokError}`);
+    } else {
+      setStatus(
+        `Done (${mode}). Profile: ${result.profile?.name || '—'} · skills ${skills}. Review Master/Working & Profile, then Discover jobs.`
+      );
+    }
+    render();
+  } catch (err) {
+    console.error(err);
+    toast(err.message || String(err), 'err');
+    setStatus(err.message || String(err));
+  } finally {
+    state.busy = false;
+  }
 }
 
 // ── Domains / learning ─────────────────────────────────────
@@ -1864,10 +1974,13 @@ async function analyzeDomain(domain) {
 // ── Profile ────────────────────────────────────────────────
 
 function renderProfile(root, actions) {
-  actions.innerHTML = `<button type="button" class="btn primary" id="pf-save">Save profile</button>`;
+  actions.innerHTML = `
+    <button type="button" class="btn" id="pf-from-resume">Fill from resume upload</button>
+    <button type="button" class="btn primary" id="pf-save">Save profile</button>
+  `;
   const p = state.profile;
   root.innerHTML = `
-    <p class="muted" style="margin-top:0">Targeting signals for match scoring (remote / high-autonomy, ~$2–3k/mo band by default).</p>
+    <p class="muted" style="margin-top:0">Targeting signals for match scoring. Prefer <strong>Resumes → Upload PDF</strong> so Grok fills these from your CV; edit anything here afterward.</p>
     <div class="grid-2">
       <div class="field"><label>Your name</label><input id="pf-name" value="${esc(p.name || '')}" /></div>
       <div class="field"><label>Remote only</label>
@@ -1884,6 +1997,11 @@ function renderProfile(root, actions) {
     <div class="field"><label>Deal-breakers (comma-separated substrings)</label><input id="pf-db" value="${esc((p.dealBreakers || []).join(', '))}" /></div>
     <div class="field"><label>Notes</label><textarea id="pf-notes" rows="4">${esc(p.notes || '')}</textarea></div>
   `;
+  $('#pf-from-resume').onclick = () => {
+    state.view = 'resumes';
+    render();
+    requestAnimationFrame(() => $('#resume-file')?.click());
+  };
   $('#pf-save').onclick = async () => {
     const split = (id) =>
       $(id)

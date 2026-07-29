@@ -102,6 +102,44 @@ Use job descriptions when available; otherwise titles, notes, and resume mismatc
 }
 
 /**
+ * Structure a raw resume into plain text + profile fields for Bootstraps.
+ */
+export function parseResumePrompt({ resumeText }) {
+  return {
+    system: `You extract structured career data from a resume for a job-hunt app.
+Output strict JSON only (no markdown fences):
+{
+  "plainResume": "clean plain-text resume, well sectioned, ATS-friendly, preserve ALL real facts",
+  "headline": "short professional headline",
+  "yearsExperience": null or number,
+  "summary": "2-4 sentence professional summary",
+  "profile": {
+    "name": "",
+    "skills": ["concrete skills/tools"],
+    "experienceKeywords": ["role themes and domain keywords for job matching"],
+    "preferredDomains": ["pick 2-5 from: Data Analysis, Strategy, Research, Web3/Blockchain, Marketing/BD, Hybrid, Product, Operations, Writing/Content, Other — or close labels"],
+    "salaryFloorUsd": null,
+    "salaryCeilingUsd": null,
+    "dealBreakers": [],
+    "remoteOnly": true,
+    "notes": "contact lines, location, work authorization if present — short"
+  }
+}
+Rules:
+- NEVER invent employers, degrees, dates, or metrics not supported by the source text.
+- plainResume must be complete enough to use as Master Resume (not a summary-only stub).
+- skills: 8–25 high-signal items (tools, methods, languages).
+- experienceKeywords: words that should match job postings (e.g. "SQL", "go-to-market", "due diligence").
+- If salary not stated, leave salary fields null.
+- remoteOnly true unless resume clearly requires on-site only.`,
+    user: `RESUME SOURCE TEXT:
+${(resumeText || '').slice(0, 24000)}
+
+Return the JSON object now.`,
+  };
+}
+
+/**
  * Parse model JSON even if wrapped in fences.
  */
 export function parseModelJson(text) {
