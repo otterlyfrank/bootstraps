@@ -7,8 +7,11 @@ Local-first job hunt optimization: find high-fit remote roles, track every appli
 
 ![Local-first](https://img.shields.io/badge/data-local--first-green)
 ![License: free personal use](https://img.shields.io/badge/license-free%20personal%20use-blue)
+![GitHub](https://img.shields.io/badge/github-public-brightgreen)
 
-**Private repository** for now. Free for personal use; commercial redistribution needs permission. License can be changed later if you go public.
+**Public source** — free for personal use; commercial redistribution needs permission. See [LICENSE](./LICENSE).
+
+**Repo:** [github.com/otterlyfrank/bootstraps](https://github.com/otterlyfrank/bootstraps)
 
 ---
 
