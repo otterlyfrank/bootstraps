@@ -70,6 +70,15 @@ import {
   daysFromNow,
   formatTouchDate,
 } from './lib/job-filters.js';
+import {
+  normalizePreset,
+  presetsFromSettings,
+  upsertPreset,
+  removePreset,
+  exportPresetsJson,
+  importPresetsJson,
+} from './lib/hunt-presets.js';
+import { wizardSteps, wizardComplete } from './lib/onboarding-wizard.js';
 
 /** @type {any} */
 let state = {
@@ -105,6 +114,9 @@ export async function mountApp(root) {
     if (rootEl) render();
   });
   window.addEventListener('keydown', onGlobalKeydown);
+  if (!wizardComplete(state) && !state.settings?.onboardingDone) {
+    requestAnimationFrame(() => openOnboardingWizard());
+  }
 }
 
 function onGlobalKeydown(e) {
@@ -219,10 +231,14 @@ function appliedJobIds() {
 
 /** Visible jobs for board/digest given shelf + settings. */
 function visibleJobs(shelf = state.jobShelf) {
+  const floor = Number(state.settings?.minJobScore ?? 35);
+  const hard = !!state.settings?.hardScoreFilter;
   const minScore =
-    shelf === 'all' ? 0 : Number(state.settings?.minJobScore ?? 35);
+    shelf === 'shortlist' ? 0 : shelf === 'all' && !hard ? 0 : floor;
   return filterJobs(state.jobs, {
-    minScore: shelf === 'shortlist' ? 0 : minScore,
+    minScore,
+    scoreFloor: floor,
+    hardScoreFilter: shelf === 'all' && hard,
     shortlistedOnly: shelf === 'shortlist',
     hideDealBreakers: state.settings?.hideDealBreakers !== false,
     hideApplied: shelf === 'worth',
@@ -458,6 +474,69 @@ function viewTitle() {
 
 // ── Dashboard ──────────────────────────────────────────────
 
+
+function openOnboardingWizard() {
+  if (document.getElementById('wiz-backdrop')) return;
+  const steps = wizardSteps(state);
+  let step = Math.max(0, steps.findIndex((s) => !s.done));
+  if (step < 0) step = steps.length - 1;
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.id = 'wiz-backdrop';
+  const paint = () => {
+    const s = steps[step];
+    const doneN = steps.filter((x) => x.done).length;
+    backdrop.innerHTML = `
+      <div class="modal wizard-modal">
+        <p class="dim" style="margin:0 0 0.35rem">Setup ${step + 1}/${steps.length} · ${doneN} complete</p>
+        <div class="onboard-progress"><i style="width:${Math.round(((step + 1) / steps.length) * 100)}%"></i></div>
+        <h2 style="margin:0.75rem 0 0.35rem">${esc(s.title)}</h2>
+        <p class="muted">${esc(s.body)}</p>
+        <p class="dim">${s.done ? '✓ This step looks done.' : 'Not done yet — use the button below.'}</p>
+        <div class="modal-actions" style="margin-top:1rem">
+          <button type="button" class="btn ghost" id="wiz-skip">Skip for now</button>
+          ${step > 0 ? '<button type="button" class="btn" id="wiz-back">Back</button>' : ''}
+          <button type="button" class="btn primary" id="wiz-cta">${esc(s.cta)}</button>
+          <button type="button" class="btn" id="wiz-next">${step >= steps.length - 1 ? 'Finish' : 'Next'}</button>
+        </div>
+      </div>`;
+    $('#wiz-skip', backdrop).onclick = async () => {
+      state.settings = await setSettings({ onboardingDone: true });
+      backdrop.remove();
+    };
+    $('#wiz-back', backdrop)?.addEventListener('click', () => {
+      step = Math.max(0, step - 1);
+      paint();
+    });
+    $('#wiz-next', backdrop).onclick = async () => {
+      if (step >= steps.length - 1) {
+        state.settings = await setSettings({ onboardingDone: true });
+        backdrop.remove();
+        toast('Setup complete — daily loop is on the dashboard', 'ok');
+        state.view = 'dashboard';
+        render();
+        return;
+      }
+      step++;
+      paint();
+    };
+    $('#wiz-cta', backdrop).onclick = async () => {
+      backdrop.remove();
+      state.view = s.view;
+      render();
+      if (s.action === 'upload') {
+        requestAnimationFrame(() => $('#resume-file')?.click());
+      }
+      if (s.action === 'hunt') {
+        requestAnimationFrame(() => $('#disc-hunt')?.click());
+      }
+    };
+  };
+  document.body.appendChild(backdrop);
+  paint();
+}
+
 function renderDashboard(root, actions) {
   const hasResume = !!resumeBody().trim();
   const hasKey = !!(state.settings?.llmApiKey || '').trim();
@@ -510,7 +589,10 @@ function renderDashboard(root, actions) {
           <span class="dim">Public boards scored to you ${hasJobs ? '✓' : ''}</span>
         </button>
       </div>
-      <p class="dim" style="margin-top:1rem">Or <button type="button" class="btn" id="onboard-sample">load sample data</button> to explore without a resume.</p>
+      <p class="dim" style="margin-top:1rem">
+        <button type="button" class="btn primary" id="fr-wizard">Guided setup</button>
+        Or <button type="button" class="btn" id="onboard-sample">load sample data</button>
+      </p>
       ${supportBlock()}
     `;
     $('#fr-api').onclick = () => { state.view = 'settings'; render(); };
@@ -524,6 +606,7 @@ function renderDashboard(root, actions) {
       render();
       requestAnimationFrame(() => $('#disc-hunt')?.click());
     };
+    $('#fr-wizard')?.addEventListener('click', () => openOnboardingWizard());
     $('#onboard-sample')?.addEventListener('click', async () => {
       try {
         await loadSamplePack();
@@ -761,6 +844,9 @@ function renderJobs(root, actions) {
       <label class="filter-inline check-inline">
         <input type="checkbox" id="job-hidedb" ${hideDb ? 'checked' : ''} /> Hide deal-breakers
       </label>
+      <label class="filter-inline check-inline" title="Apply min score even on All scored">
+        <input type="checkbox" id="job-hard" ${state.settings?.hardScoreFilter ? 'checked' : ''} /> Hard score filter
+      </label>
       <input class="search" id="job-q" placeholder="Filter…" value="${esc(state.jobQ)}" />
       <span class="dim">${jobs.length} shown</span>
     </div>
@@ -808,6 +894,10 @@ function renderJobs(root, actions) {
     state.settings = await setSettings({ hideDealBreakers: e.target.checked });
     render();
   };
+  $('#job-hard')?.addEventListener('change', async (e) => {
+    state.settings = await setSettings({ hardScoreFilter: e.target.checked });
+    render();
+  });
   $('#job-q').addEventListener('keydown', async (e) => {
     if (e.key === 'Enter') {
       state.jobQ = e.target.value.trim();
@@ -828,6 +918,17 @@ async function mountDiscoveryPanel(host) {
   const sources = catalog.length ? catalog : DISCOVERY_SOURCES;
   const hasResume = !!resumeBody().trim();
   const lastHunt = state.settings?.lastHunt;
+  const presets = presetsFromSettings(state.settings);
+  let sourceHealth = {};
+  try {
+    const hr = await fetch('/api/source-health');
+    if (hr.ok) {
+      const hd = await hr.json();
+      sourceHealth = hd.health || {};
+    }
+  } catch {
+    /* offline */
+  }
 
   host.hidden = false;
   host.innerHTML = `
@@ -860,6 +961,19 @@ async function mountDiscoveryPanel(host) {
         </p>
       </div>
 
+      <div class="field" style="margin-top:0.75rem">
+        <label>Hunt presets</label>
+        <div class="row-actions" style="flex-wrap:wrap;gap:0.4rem;align-items:center">
+          <select id="disc-preset" style="max-width:14rem">
+            <option value="">— load preset —</option>
+            ${presets.map((pr) => `<option value="${esc(pr.id)}">${esc(pr.name)}</option>`).join('')}
+          </select>
+          <button type="button" class="btn" id="disc-load-preset">Load</button>
+          <button type="button" class="btn" id="disc-save-preset">Save current as preset</button>
+          <button type="button" class="btn ghost" id="disc-del-preset">Delete</button>
+        </div>
+      </div>
+
       <div class="row-actions" style="margin-top:0.85rem;flex-wrap:wrap;gap:0.5rem">
         <button type="button" class="btn primary" id="disc-hunt" ${
           !hasResume || !health.discover ? 'disabled' : ''
@@ -885,7 +999,11 @@ async function mountDiscoveryPanel(host) {
                 (s) => `
               <label class="source-chip">
                 <input type="checkbox" data-source="${esc(s.id)}" ${s.default !== false ? 'checked' : ''} />
-                <span><strong>${esc(s.name)}</strong><br/><span class="dim">${esc(s.blurb || '')}</span></span>
+                <span><strong>${esc(s.name)}</strong>
+                  <span class="src-health ${sourceHealth[s.id]?.ok ? 'ok' : sourceHealth[s.id] ? 'err' : ''}" title="${esc(sourceHealth[s.id]?.error || (sourceHealth[s.id]?.ok ? 'ok' : 'unknown'))}">${
+                    sourceHealth[s.id]?.ok ? '●' : sourceHealth[s.id] ? '○' : '·'
+                  }</span>
+                  <br/><span class="dim">${esc(s.blurb || '')}</span></span>
               </label>`
               )
               .join('')}
@@ -994,7 +1112,65 @@ async function mountDiscoveryPanel(host) {
     }
   };
 
+  
+  const currentHuntConfig = () => {
+    const extra = ($('#disc-search', host)?.value || '')
+      .split(/[,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const plan = buildHuntPlan(state.profile, resumeBody());
+    return {
+      queries: extra.length ? extra : plan.queries,
+      sources: selectedSources(),
+      minScore: Number($('#disc-minscore', host)?.value) || 0,
+      limit: Number($('#disc-limit', host)?.value) || 50,
+    };
+  };
+
+  $('#disc-save-preset', host)?.addEventListener('click', async () => {
+    const name = prompt('Preset name', 'My hunt');
+    if (!name) return;
+    const cfg = currentHuntConfig();
+    const list = upsertPreset(presetsFromSettings(state.settings), {
+      name,
+      ...cfg,
+    });
+    state.settings = await setSettings({ huntPresets: list });
+    toast('Preset saved', 'ok');
+    render();
+  });
+  $('#disc-load-preset', host)?.addEventListener('click', () => {
+    const id = $('#disc-preset', host)?.value;
+    const pr = presetsFromSettings(state.settings).find((x) => x.id === id);
+    if (!pr) {
+      toast('Pick a preset', 'err');
+      return;
+    }
+    const inp = $('#disc-search', host);
+    if (inp) inp.value = (pr.queries || []).join(', ');
+    if ($('#disc-minscore', host)) $('#disc-minscore', host).value = pr.minScore ?? 35;
+    if ($('#disc-limit', host)) $('#disc-limit', host).value = pr.limit ?? 50;
+    host.querySelectorAll('[data-source]').forEach((el) => {
+      el.checked = (pr.sources || []).includes(el.dataset.source);
+    });
+    const planEl = host.querySelector('.hunt-queries');
+    if (planEl && pr.queries?.length) {
+      planEl.innerHTML = pr.queries.map((q) => `<span class="tag hunt-q">${esc(q)}</span>`).join('');
+    }
+    toast(`Loaded “${pr.name}” — run Hunt or Custom`, 'ok');
+  });
+  $('#disc-del-preset', host)?.addEventListener('click', async () => {
+    const id = $('#disc-preset', host)?.value;
+    if (!id) return;
+    if (!confirm('Delete this preset?')) return;
+    const list = removePreset(presetsFromSettings(state.settings), id);
+    state.settings = await setSettings({ huntPresets: list });
+    toast('Preset deleted', 'ok');
+    render();
+  });
+
   $('#disc-hunt', host).onclick = () => runHunt('hunt');
+
   $('#disc-run', host).onclick = () => runHunt('custom');
 
   $('#disc-grok-q', host)?.addEventListener('click', async () => {
@@ -2473,6 +2649,40 @@ function renderSettings(root, actions) {
           <option value="light" ${s.theme === 'light' ? 'selected' : ''}>Light (day / bright room)</option>
         </select>
       </div>
+      <div class="field" style="margin-top:0.75rem">
+        <label class="check-inline"><input type="checkbox" id="s-hard" ${s.hardScoreFilter ? 'checked' : ''} /> Hard score filter (min score applies to All scored too)</label>
+      </div>
+      <div class="row-actions" style="margin-top:0.65rem">
+        <button type="button" class="btn" id="s-wizard">Replay guided setup</button>
+      </div>
+    </div>
+
+    <div class="card" style="max-width:40rem;margin-top:1rem">
+      <h3>Hunt presets</h3>
+      <p class="muted" style="margin-top:0">Save multi-query board hunts (e.g. “Data analyst remote”). Load them on the Job board. Export to share or back up.</p>
+      <div id="s-presets-list" class="presets-list">
+        ${(presetsFromSettings(s).length
+          ? presetsFromSettings(s)
+              .map(
+                (pr) => `
+          <div class="preset-row">
+            <div>
+              <strong>${esc(pr.name)}</strong>
+              <div class="dim">${esc((pr.queries || []).join(' · '))}</div>
+            </div>
+            <div class="row-actions">
+              <button type="button" class="btn ghost" data-preset-run="${esc(pr.id)}">Run</button>
+              <button type="button" class="btn ghost" data-preset-del="${esc(pr.id)}">Delete</button>
+            </div>
+          </div>`
+              )
+              .join('')
+          : '<p class="dim">No presets yet — save one from Job board → Hunt presets.</p>')}
+      </div>
+      <div class="row-actions" style="margin-top:0.65rem;flex-wrap:wrap;gap:0.4rem">
+        <button type="button" class="btn" id="s-preset-export">Export presets JSON</button>
+        <label class="btn">Import JSON<input type="file" id="s-preset-import" accept="application/json,.json" hidden /></label>
+      </div>
     </div>
 
     <div class="card settings-api-card" style="max-width:40rem;margin-top:1rem">
@@ -2556,6 +2766,60 @@ function renderSettings(root, actions) {
     ${supportBlock()}
   `;
   wireInstallButtons(root);
+  $('#s-wizard')?.addEventListener('click', () => openOnboardingWizard());
+  $('#s-preset-export')?.addEventListener('click', () => {
+    downloadText(
+      'bootstraps-hunt-presets.json',
+      exportPresetsJson(presetsFromSettings(state.settings)),
+      'application/json'
+    );
+    toast('Exported presets', 'ok');
+  });
+  $('#s-preset-import')?.addEventListener('change', async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    try {
+      const text = await f.text();
+      const incoming = importPresetsJson(text);
+      let list = presetsFromSettings(state.settings);
+      for (const pr of incoming) list = upsertPreset(list, pr);
+      state.settings = await setSettings({ huntPresets: list });
+      toast(`Imported ${incoming.length} presets`, 'ok');
+      render();
+    } catch (err) {
+      toast(err.message || String(err), 'err');
+    }
+    e.target.value = '';
+  });
+  root.querySelectorAll('[data-preset-del]').forEach((btn) => {
+    btn.onclick = async () => {
+      if (!confirm('Delete preset?')) return;
+      const list = removePreset(presetsFromSettings(state.settings), btn.dataset.presetDel);
+      state.settings = await setSettings({ huntPresets: list });
+      render();
+    };
+  });
+  root.querySelectorAll('[data-preset-run]').forEach((btn) => {
+    btn.onclick = async () => {
+      const pr = presetsFromSettings(state.settings).find((x) => x.id === btn.dataset.presetRun);
+      if (!pr) return;
+      state.view = 'jobs';
+      render();
+      requestAnimationFrame(async () => {
+        // load into panel and run custom
+        const host = $('#discovery-panel');
+        if (!host) return;
+        const inp = $('#disc-search', host);
+        if (inp) inp.value = (pr.queries || []).join(', ');
+        if ($('#disc-minscore', host)) $('#disc-minscore', host).value = pr.minScore ?? 35;
+        if ($('#disc-limit', host)) $('#disc-limit', host).value = pr.limit ?? 50;
+        host.querySelectorAll('[data-source]').forEach((el) => {
+          el.checked = !(pr.sources || []).length || pr.sources.includes(el.dataset.source);
+        });
+        $('#disc-run', host)?.click();
+      });
+    };
+  });
   $('#s-save').onclick = async () => {
     const domains = $('#s-domains')
       .value.split('\n')
@@ -2563,6 +2827,7 @@ function renderSettings(root, actions) {
       .filter(Boolean);
     state.settings = await setSettings({
       theme: $('#s-theme').value,
+      hardScoreFilter: !!$('#s-hard')?.checked,
       llmBaseUrl: $('#s-url').value.trim(),
       llmApiKey: $('#s-key').value.trim(),
       fastModel: $('#s-fast').value.trim(),

@@ -25,7 +25,12 @@ export function filterJobs(jobs, opts = {}) {
   const applied = opts.appliedIds || new Set();
   let list = (jobs || []).filter((j) => !j.dismissed);
   if (opts.shortlistedOnly) list = list.filter((j) => j.shortlisted);
-  if (minScore > 0) list = list.filter((j) => (j.score || 0) >= minScore);
+  // hardScoreFilter: apply min even when caller passed minScore 0 for "all"
+  const floor =
+    opts.hardScoreFilter && opts.scoreFloor != null
+      ? Number(opts.scoreFloor)
+      : minScore;
+  if (floor > 0) list = list.filter((j) => (j.score || 0) >= floor);
   if (opts.hideDealBreakers && opts.profile) {
     list = list.filter((j) => dealBreakerHits(j, opts.profile).length === 0);
   }
