@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.0 — 2026-07-29
+
+### Resume PDF upload + Grok population
+
+- **Upload PDF / DOCX / TXT** on Resumes (drag-drop + file picker); local extract via pdf.js / mammoth
+- **Grok assist** (Settings API key): structures clean Master resume text, copies Working, fills Profile (name, skills, keywords, domains, notes)
+- Offline **heuristic parse** if no key; optional server `/api/extract-resume` fallback (pypdf)
+- After ingest: jobs **rescored** against new Working resume
+- Dashboard **Upload resume** shortcut; Profile links to upload flow
+
+---
+
 ## 1.3.0 — 2026-07-29
 
 ### Maximum job discovery

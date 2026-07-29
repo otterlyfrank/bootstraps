@@ -90,13 +90,23 @@ Plain `python -m http.server` serves UI only (no discovery APIs).
 
 ---
 
+## Resume upload (PDF)
+
+1. **Settings** → Grok/xAI base URL + API key (for full assist).  
+2. **Resumes** → **Choose PDF / DOCX** or drop a file.  
+3. Bootstraps extracts text locally, Grok cleans Master + fills **Profile** (skills, keywords, domains), copies **Working**, rescored job matches.  
+4. Edit anything in Master/Working/Profile, then **Discover jobs**.
+
+Without an API key, text still extracts and a local heuristic fills what it can.
+
+---
+
 ## First session (15 minutes)
 
 The **Dashboard** shows a live checklist. Fast path:
 
-1. **Load sample data** (Dashboard) — demo resume, scored jobs, applications with JDs, and a flagged domain.  
-   Or paste your real **Master** resume and fill **Profile**.
-2. **Job board** → **Paste links** (your collected URLs), **Fetch Remotive**, or **Bulk import**. Scores show a **breakdown**.
+1. **Upload resume (PDF)** or load sample data. With Grok configured, Profile populates automatically.  
+2. **Job board** → **Discover** / **Paste links**. Scores show a **breakdown**.
 3. **Prepare** on a card → **free local prep** (keyword coverage + pack) works offline; optional **Polish with Grok**.
 4. **Log apply** — JD is stored for the learning loop.
 5. **Applications → Pipeline** — drag status changes.
