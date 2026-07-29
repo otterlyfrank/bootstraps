@@ -35,6 +35,7 @@ import {
   rescoreAllJobs,
   importBulkJobs,
 } from './jobs/sources.js';
+import { importJobLinks, checkJobFetch, parseJobLinks } from './jobs/links.js';
 import { scoreJob, buildDigest, inferDomains } from './jobs/match.js';
 import { domainPerformance, appsForDomain } from './jobs/learning.js';
 import { buildLocalPrep } from './jobs/hints.js';
@@ -182,7 +183,7 @@ function onboardingSteps() {
     },
     {
       id: 'jobs',
-      label: 'Fetch Remotive or load sample jobs',
+      label: 'Paste job links, fetch Remotive, or load sample jobs',
       done: hasJobs,
       view: 'jobs',
     },
@@ -339,6 +340,7 @@ function viewTitle() {
 function renderDashboard(root, actions) {
   actions.innerHTML = `
     <button type="button" class="btn" id="d-sample">Load sample data</button>
+    <button type="button" class="btn primary" id="d-links">Paste links</button>
     <button type="button" class="btn" id="d-fetch">Fetch Remotive</button>
     <button type="button" class="btn primary" id="d-digest">Open digest</button>
   `;
@@ -427,7 +429,7 @@ function renderDashboard(root, actions) {
               .slice(0, 5)
               .map((j) => jobCardHtml(j, { compact: true }))
               .join('')
-          : `<div class="empty"><h3>No ranked jobs yet</h3><p>Fetch Remotive, add a job manually, or load sample data.</p></div>`
+          : `<div class="empty"><h3>No ranked jobs yet</h3><p>Paste job links you’ve collected, fetch Remotive, or load sample data.</p></div>`
       }
     </div>
     ${supportBlock()}
@@ -448,6 +450,7 @@ function renderDashboard(root, actions) {
       toast(err.message || String(err), 'err');
     }
   };
+  $('#d-links').onclick = () => openPasteLinks();
   $('#d-fetch').onclick = () => fetchJobs();
   $('#d-digest').onclick = () => {
     state.view = 'digest';
@@ -496,9 +499,10 @@ function renderDigest(root, actions) {
 
 function renderJobs(root, actions) {
   actions.innerHTML = `
+    <button type="button" class="btn primary" id="j-links">Paste links</button>
     <button type="button" class="btn" id="j-bulk">Bulk import</button>
     <button type="button" class="btn" id="j-manual">Add manual</button>
-    <button type="button" class="btn primary" id="j-fetch">Fetch Remotive</button>
+    <button type="button" class="btn" id="j-fetch">Fetch Remotive</button>
   `;
   let jobs = state.jobs;
   if (state.jobQ) {
@@ -506,7 +510,8 @@ function renderJobs(root, actions) {
     jobs = jobs.filter(
       (j) =>
         (j.title || '').toLowerCase().includes(q) ||
-        (j.company || '').toLowerCase().includes(q)
+        (j.company || '').toLowerCase().includes(q) ||
+        (j.url || '').toLowerCase().includes(q)
     );
   }
   root.innerHTML = `
@@ -524,13 +529,14 @@ function renderJobs(root, actions) {
       ${
         jobs.length
           ? jobs.map((j) => jobCardHtml(j)).join('')
-          : `<div class="empty"><h3>No jobs yet</h3><p>Fetch from Remotive (high-signal remote board) or add manually. WWR etc. via manual entry for now.</p></div>`
+          : `<div class="empty"><h3>No jobs yet</h3><p><strong>Paste links</strong> you’ve collected (Greenhouse, Lever, LinkedIn, company pages…), fetch Remotive, bulk-import text, or add one job manually. Links are fetched locally, scored against your Working resume, then land here.</p></div>`
       }
     </div>
   `;
   $('#j-fetch').onclick = () => fetchJobs();
   $('#j-manual').onclick = () => openManualJob();
   $('#j-bulk').onclick = () => openBulkImport();
+  $('#j-links').onclick = () => openPasteLinks();
   $('#job-q').addEventListener('keydown', async (e) => {
     if (e.key === 'Enter') {
       state.jobQ = e.target.value.trim();
@@ -623,7 +629,7 @@ function openBulkImport() {
   backdrop.innerHTML = `
     <div class="modal wide">
       <h2>Bulk import jobs</h2>
-      <p class="muted">Paste jobs from WWR, newsletters, JSON dumps, or spreadsheets. No scraper — you paste, we score.</p>
+      <p class="muted">Paste structured jobs from WWR, newsletters, JSON, or spreadsheets. For a list of <strong>URLs only</strong>, use <strong>Paste links</strong> instead — it fetches each page.</p>
       <div class="field">
         <label>Formats</label>
         <p class="dim" style="margin:0">• Blocks with <code>Title:</code> <code>Company:</code> <code>URL:</code> <code>Description:</code> separated by <code>---</code><br/>
@@ -642,18 +648,35 @@ Company: Harbor
 ..."></textarea></div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" id="bulk-cancel">Cancel</button>
+        <button type="button" class="btn" id="bulk-as-links">Looks like links → Paste links</button>
         <button type="button" class="btn primary" id="bulk-go">Import & score</button>
       </div>
     </div>`;
   document.body.appendChild(backdrop);
   const close = () => backdrop.remove();
   $('#bulk-cancel', backdrop).onclick = close;
+  $('#bulk-as-links', backdrop).onclick = () => {
+    const raw = $('#bulk-raw', backdrop).value;
+    close();
+    openPasteLinks(raw);
+  };
   $('#bulk-go', backdrop).onclick = async () => {
     const raw = $('#bulk-raw', backdrop).value;
+    // Auto-route pure URL pastes to link importer
+    const linkItems = parseJobLinks(raw);
+    const nonUrlLines = raw
+      .split(/\n/)
+      .map((l) => l.trim())
+      .filter((l) => l && !/^https?:\/\//i.test(l) && !/\[[^\]]+\]\(https?:\/\//i.test(l));
+    if (linkItems.length >= 1 && nonUrlLines.length === 0) {
+      close();
+      openPasteLinks(raw);
+      return;
+    }
     try {
       const r = await importBulkJobs(raw, state.profile, resumeBody(), state.settings.domains);
       if (!r.total) {
-        toast('No jobs parsed — check format', 'err');
+        toast('No jobs parsed — check format, or use Paste links for URLs', 'err');
         return;
       }
       close();
@@ -662,6 +685,98 @@ Company: Harbor
       render();
     } catch (err) {
       toast(err.message || String(err), 'err');
+    }
+  };
+}
+
+function openPasteLinks(prefill = '') {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal wide">
+      <h2>Paste job links</h2>
+      <p class="muted">
+        Drop in URLs you’ve saved from Greenhouse, Lever, Ashby, LinkedIn, company career pages, newsletters, etc.
+        Bootstraps fetches each page <strong>on your machine</strong>, extracts title / company / description, then scores against your Working resume.
+      </p>
+      <div class="field">
+        <label>Accepted formats</label>
+        <p class="dim" style="margin:0">
+          • One URL per line<br/>
+          • <code>Title | https://…</code> or <code>Title · Company · https://…</code><br/>
+          • Markdown <code>[Title](https://…)</code><br/>
+          • Mixed paste from notes — URLs are picked out automatically
+        </p>
+      </div>
+      <div class="field">
+        <label>Links</label>
+        <textarea id="links-raw" rows="12" placeholder="https://boards.greenhouse.io/acme/jobs/123
+Senior Analyst | https://jobs.lever.co/harbor/uuid
+[Research Lead](https://jobs.ashbyhq.com/studio/abc)
+https://weworkremotely.com/remote-jobs/…"></textarea>
+      </div>
+      <p class="dim" id="links-status">Ready.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="links-cancel">Cancel</button>
+        <button type="button" class="btn primary" id="links-go">Fetch, score &amp; import</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  if (prefill) $('#links-raw', backdrop).value = prefill;
+
+  const close = () => backdrop.remove();
+  const status = $('#links-status', backdrop);
+  $('#links-cancel', backdrop).onclick = close;
+  backdrop.onclick = (e) => {
+    if (e.target === backdrop) close();
+  };
+
+  // Probe server once
+  checkJobFetch().then((r) => {
+    if (!r.ok) {
+      status.innerHTML =
+        '<span style="color:var(--warn)">Job-fetch API offline — start with <code>./start.sh</code> (not plain <code>python -m http.server</code>). Links can still import as stubs.</span>';
+    } else {
+      status.textContent = 'Local fetch ready — pages will be loaded through Bootstraps server.';
+    }
+  });
+
+  $('#links-go', backdrop).onclick = async () => {
+    const raw = $('#links-raw', backdrop).value;
+    const preview = parseJobLinks(raw);
+    if (!preview.length) {
+      toast('No URLs found in paste', 'err');
+      return;
+    }
+    if (state.busy) return;
+    state.busy = true;
+    const go = $('#links-go', backdrop);
+    go.disabled = true;
+    status.textContent = `0 / ${preview.length}…`;
+    try {
+      const r = await importJobLinks(
+        raw,
+        state.profile,
+        resumeBody(),
+        state.settings.domains,
+        (done, total, job) => {
+          status.textContent = `${done} / ${total} — ${job.title || '…'} (${job.score ?? 0})`;
+        }
+      );
+      close();
+      await reloadAll();
+      const failNote = r.failed ? ` · ${r.failed} partial (stub)` : '';
+      toast(
+        `Links: ${r.added} new · ${r.updated} updated · ${r.total} total${failNote}`,
+        r.total ? 'ok' : 'err'
+      );
+      render();
+    } catch (err) {
+      toast(err.message || String(err), 'err');
+      status.textContent = err.message || String(err);
+      go.disabled = false;
+    } finally {
+      state.busy = false;
     }
   };
 }

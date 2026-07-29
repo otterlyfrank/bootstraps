@@ -70,13 +70,26 @@ Then install from the browser as above.
 
 ---
 
+## Job discovery
+
+| Path | How |
+|------|-----|
+| **Paste links** | Job board → **Paste links** — dump Greenhouse / Lever / Ashby / LinkedIn / career-page URLs (one per line, or `Title \| url`, or markdown). Local server fetches each page, extracts title/company/description, scores vs Working resume. |
+| **Remotive** | **Fetch Remotive** — public remote board API. |
+| **Bulk import** | Structured paste (Title/Company/URL blocks, TSV, JSON). Pure URL lists auto-route to Paste links. |
+| **Manual** | One-off title + company + URL + JD. |
+
+`./start.sh` runs `scripts/bootstraps_server.py` (static files **+** `POST /api/job-fetch`). Plain `python -m http.server` still serves the UI but cannot fetch pages (CORS); link import falls back to URL stubs.
+
+---
+
 ## First session (15 minutes)
 
 The **Dashboard** shows a live checklist. Fast path:
 
 1. **Load sample data** (Dashboard) — demo resume, scored jobs, applications with JDs, and a flagged domain.  
    Or paste your real **Master** resume and fill **Profile**.
-2. **Job board** → **Fetch Remotive**, **Bulk import** (WWR paste / TSV / JSON), or sample jobs. Scores show a **breakdown**.
+2. **Job board** → **Paste links** (your collected URLs), **Fetch Remotive**, or **Bulk import**. Scores show a **breakdown**.
 3. **Prepare** on a card → **free local prep** (keyword coverage + pack) works offline; optional **Polish with Grok**.
 4. **Log apply** — JD is stored for the learning loop.
 5. **Applications → Pipeline** — drag status changes.
