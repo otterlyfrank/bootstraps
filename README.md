@@ -16,8 +16,7 @@ Local-first job hunt optimization: find high-fit remote roles, track every appli
 
 Bootstraps is free. If it helps you land a role, get interviews, or improve your materials, **please consider donating** — it funds continued development.
 
-- **GitHub Sponsors** — set your URL in Settings (or update the defaults in the app)  
-- **Ko-fi** — same  
+- **[Ko-fi — otterlyfrank](https://ko-fi.com/otterlyfrank)**  
 
 You’ll also see a soft reminder in the app sidebar and on the dashboard.
 
