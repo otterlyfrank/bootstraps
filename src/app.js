@@ -49,6 +49,7 @@ import {
 } from './lib/export.js';
 import { loadSamplePack } from './lib/sample.js';
 import { lineDiff, diffStats } from './lib/diff.js';
+import { installUiHtml, wireInstallButtons } from './pwa.js';
 
 /** @type {any} */
 let state = {
@@ -75,6 +76,10 @@ export async function mountApp(root) {
   rootEl = root;
   await reloadAll();
   render();
+  // Re-render when browser becomes installable / after install
+  window.addEventListener('bootstraps-pwa-change', () => {
+    if (rootEl) render();
+  });
 }
 
 async function reloadAll() {
@@ -252,6 +257,9 @@ function render() {
         <p class="usage-chip" style="display:inline-block;margin-top:0.35rem">
           AI ~${formatUsd(state.usage.estCostUsd)} · ${state.usage.totalTokens || 0} tok
         </p>
+        <div class="pwa-side-slot" style="margin-top:0.65rem">
+          ${installUiHtml('compact')}
+        </div>
         <p style="margin:0.65rem 0 0">
           <a href="#support" data-nav="settings" class="donate-link">♥ If this helps you get hired, donate</a>
         </p>
@@ -288,6 +296,7 @@ function render() {
     settings: renderSettings,
   };
   (map[state.view] || renderDashboard)(root, actions);
+  wireInstallButtons(rootEl);
 }
 
 function supportBlock() {
@@ -1706,8 +1715,10 @@ function renderSettings(root, actions) {
       <div class="field"><label>Ko-fi URL</label><input id="s-kofi" value="${esc(s.supportKofi || '')}" placeholder="https://ko-fi.com/yourname" /></div>
       <div class="field"><label>Message</label><textarea id="s-support-note" rows="3">${esc(s.supportNote || '')}</textarea></div>
     </div>
+    ${installUiHtml('full')}
     ${supportBlock()}
   `;
+  wireInstallButtons(root);
   $('#s-save').onclick = async () => {
     const domains = $('#s-domains')
       .value.split('\n')

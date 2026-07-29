@@ -23,9 +23,29 @@ You’ll also see a soft reminder in the app sidebar and on the dashboard.
 
 ---
 
-## Quick start
+## Install as an app (recommended)
 
-Needs a modern browser + [Python 3](https://www.python.org/downloads/) (for a tiny local server).
+Bootstraps is a **browser app** (PWA). No native binary, no Rust, no compile step.
+
+Once it’s open over **http://localhost** (or a future public HTTPS URL):
+
+1. **Chrome / Edge** — install icon in the address bar, or menu → **Install Bootstraps…** / **Install page as app**  
+2. **Safari (Mac)** — **File → Add to Dock…**  
+3. **iPhone / iPad** — Share → **Add to Home Screen**
+
+That puts Bootstraps in your Applications list / Start menu and lets you **pin it to the Dock or taskbar**, with a chrome-less window.
+
+In-app: **Settings → Install Bootstraps**, or the sidebar **Install app** button when the browser offers a prompt.
+
+Your hunt data stays in **this browser profile’s IndexedDB** (export from Settings anytime).
+
+> **Public host (later):** serve this folder on HTTPS. The same Install flow works for anyone who visits — try in browser first, install if they like it.
+
+---
+
+## Quick start (local)
+
+Needs a modern browser + [Python 3](https://www.python.org/downloads/) (tiny local server so modules / PWA work — do **not** open `index.html` as a file).
 
 ### Mac / Linux
 
@@ -35,7 +55,7 @@ chmod +x start.sh
 ./start.sh
 ```
 
-Open **http://127.0.0.1:8790**
+Open **http://127.0.0.1:8790** → then **Install app** (see above).
 
 ### Windows
 
@@ -45,6 +65,8 @@ Double-click **`start.bat`**, or:
 cd bootstraps
 python -m http.server 8790
 ```
+
+Then install from the browser as above.
 
 ---
 

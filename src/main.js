@@ -1,5 +1,6 @@
 import { openDb } from './storage/db.js';
 import { mountApp } from './app.js';
+import { initPwa } from './pwa.js';
 
 function esc(s) {
   return String(s)
@@ -21,6 +22,7 @@ async function boot() {
     return;
   }
   try {
+    initPwa();
     await openDb();
     await mountApp(root);
   } catch (err) {
