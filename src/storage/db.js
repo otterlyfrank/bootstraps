@@ -284,6 +284,25 @@ export async function findJobByExternal(source, externalId) {
   return all.find((j) => j.source === source && j.externalId === String(externalId)) || null;
 }
 
+/** Dedupe paste-links / manual entries by normalized URL. */
+export async function findJobByUrl(url) {
+  const u = String(url || '')
+    .trim()
+    .replace(/\/+$/, '')
+    .toLowerCase();
+  if (!u) return null;
+  const all = await listJobs({});
+  return (
+    all.find((j) => {
+      const ju = String(j.url || '')
+        .trim()
+        .replace(/\/+$/, '')
+        .toLowerCase();
+      return ju && ju === u;
+    }) || null
+  );
+}
+
 // ── Applications ───────────────────────────────────────────
 
 export async function putApplication(app) {

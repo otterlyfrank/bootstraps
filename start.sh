@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Bootstraps — local job hunt cockpit
+# Bootstraps — local job hunt cockpit (static UI + job-link fetch)
 set -euo pipefail
 cd "$(dirname "$0")"
 PORT="${PORT:-8792}"
 echo ""
 echo "  Bootstraps — hunt · learn · climb"
 echo "  Open: http://127.0.0.1:${PORT}"
+echo "  Job fetch API: POST /api/job-fetch"
 echo "  Stop: Ctrl+C"
 echo ""
 if ! command -v python3 >/dev/null 2>&1; then
@@ -17,4 +18,4 @@ if command -v open >/dev/null 2>&1; then
 elif command -v xdg-open >/dev/null 2>&1; then
   (sleep 0.5 && xdg-open "http://127.0.0.1:${PORT}/") &
 fi
-exec python3 -m http.server "$PORT" --bind 127.0.0.1
+exec python3 scripts/bootstraps_server.py --host 127.0.0.1 --port "$PORT"
