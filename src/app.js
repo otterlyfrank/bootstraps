@@ -50,7 +50,7 @@ import { scoreJob, buildDigest, inferDomains } from './jobs/match.js';
 import { domainPerformance, appsForDomain } from './jobs/learning.js';
 import { buildLocalPrep } from './jobs/hints.js';
 import { chatCompletion, checkLlm, formatUsd } from './ai/client.js';
-import { prepareApplicationPrompt, domainFailurePrompt, parseModelJson } from './ai/prompts.js';
+import { prepareApplicationPrompt, domainFailurePrompt, parseModelJson, huntQueriesPrompt } from './ai/prompts.js';
 import { ingestResumeFile } from './resume/ingest.js';
 import {
   downloadText,
@@ -62,6 +62,14 @@ import {
 import { loadSamplePack } from './lib/sample.js';
 import { lineDiff, diffStats } from './lib/diff.js';
 import { installUiHtml, wireInstallButtons } from './pwa.js';
+import {
+  filterJobs,
+  dealBreakerHits,
+  overdueApplications,
+  dueThisWeek,
+  daysFromNow,
+  formatTouchDate,
+} from './lib/job-filters.js';
 
 /** @type {any} */
 let state = {
@@ -75,11 +83,15 @@ let state = {
   history: [],
   usage: { calls: 0, totalTokens: 0, estCostUsd: 0 },
   jobQ: '',
+  /** @type {'all' | 'worth' | 'shortlist'} */
+  jobShelf: 'worth',
   appFilter: 'all',
   appDomain: '',
   /** @type {'pipeline' | 'list'} */
   appView: 'pipeline',
   busy: false,
+  /** job id for detail drawer */
+  drawerJobId: null,
 };
 
 let rootEl = null;
@@ -92,6 +104,43 @@ export async function mountApp(root) {
   window.addEventListener('bootstraps-pwa-change', () => {
     if (rootEl) render();
   });
+  window.addEventListener('keydown', onGlobalKeydown);
+}
+
+function onGlobalKeydown(e) {
+  const tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === 'h') {
+    e.preventDefault();
+    state.view = 'jobs';
+    render();
+    requestAnimationFrame(() => $('#disc-hunt')?.click() || $('#j-discover')?.click());
+  } else if (k === 'u') {
+    e.preventDefault();
+    state.view = 'resumes';
+    render();
+    requestAnimationFrame(() => $('#resume-file')?.click());
+  } else if (k === 'j') {
+    e.preventDefault();
+    state.view = 'jobs';
+    render();
+  } else if (k === 'a') {
+    e.preventDefault();
+    state.view = 'applications';
+    render();
+  } else if (k === 'd') {
+    e.preventDefault();
+    state.view = 'dashboard';
+    render();
+  } else if (k === 'r' && state.settings?.lastHunt) {
+    e.preventDefault();
+    refreshLastHunt();
+  } else if (k === '?' || k === '/') {
+    e.preventDefault();
+    toast('Keys: H hunt · U upload · J jobs · A apps · D dashboard · R refresh hunt', 'ok');
+  }
 }
 
 async function reloadAll() {
@@ -166,6 +215,67 @@ function domainStats() {
 
 function appliedJobIds() {
   return new Set(state.applications.map((a) => a.jobId).filter(Boolean));
+}
+
+/** Visible jobs for board/digest given shelf + settings. */
+function visibleJobs(shelf = state.jobShelf) {
+  const minScore =
+    shelf === 'all' ? 0 : Number(state.settings?.minJobScore ?? 35);
+  return filterJobs(state.jobs, {
+    minScore: shelf === 'shortlist' ? 0 : minScore,
+    shortlistedOnly: shelf === 'shortlist',
+    hideDealBreakers: state.settings?.hideDealBreakers !== false,
+    hideApplied: shelf === 'worth',
+    appliedIds: appliedJobIds(),
+    profile: state.profile,
+    q: state.jobQ,
+  });
+}
+
+function shortlistCount() {
+  return state.jobs.filter((j) => j.shortlisted && !j.dismissed).length;
+}
+
+async function saveLastHunt(plan, extras = {}) {
+  const lastHunt = {
+    queries: plan?.queries || extras.queries || [],
+    sources: plan?.sources || extras.sources || [],
+    minScore: plan?.minScore ?? extras.minScore ?? 35,
+    limit: plan?.limit ?? extras.limit ?? 50,
+    at: Date.now(),
+  };
+  state.settings = await setSettings({ lastHunt });
+}
+
+async function refreshLastHunt() {
+  const h = state.settings?.lastHunt;
+  if (!h?.queries?.length && !h?.sources?.length) {
+    toast('No saved hunt yet — run Hunt from resume first', 'err');
+    state.view = 'jobs';
+    render();
+    return;
+  }
+  if (state.busy) return;
+  state.busy = true;
+  toast('Refreshing last hunt…');
+  try {
+    const r = await huntFromResume(state.profile, resumeBody(), state.settings.domains, {
+      sources: h.sources,
+      minScore: h.minScore ?? 35,
+      limit: h.limit ?? 50,
+      extraQueries: h.queries,
+    });
+    await saveLastHunt(r.plan || h);
+    await reloadAll();
+    toast(`Refresh: +${r.added} · ${r.updated} updated · ${r.total} pulled`, r.total ? 'ok' : 'err');
+    state.view = 'jobs';
+    state.jobShelf = 'worth';
+    render();
+  } catch (err) {
+    toast(err.message || String(err), 'err');
+  } finally {
+    state.busy = false;
+  }
 }
 
 /** First-session checklist derived from live data. */
@@ -349,138 +459,227 @@ function viewTitle() {
 // ── Dashboard ──────────────────────────────────────────────
 
 function renderDashboard(root, actions) {
-  actions.innerHTML = `
-    <button type="button" class="btn" id="d-sample">Load sample data</button>
-    <button type="button" class="btn primary" id="d-upload">Upload resume</button>
-    <button type="button" class="btn primary" id="d-discover">Discover jobs</button>
-    <button type="button" class="btn primary" id="d-links">Paste links</button>
-    <button type="button" class="btn" id="d-fetch">Remotive only</button>
-    <button type="button" class="btn primary" id="d-digest">Open digest</button>
-  `;
+  const hasResume = !!resumeBody().trim();
+  const hasKey = !!(state.settings?.llmApiKey || '').trim();
+  const hasJobs = state.jobs.length > 0;
+  const lastHunt = state.settings?.lastHunt;
+  const worth = visibleJobs('worth').slice(0, 5);
+  const shortlist = state.jobs.filter((j) => j.shortlisted && !j.dismissed).slice(0, 5);
+  const overdue = overdueApplications(state.applications);
+  const weekDue = dueThisWeek(state.applications);
+  const prepareQueue = worth.slice(0, 3);
   const stats = domainStats();
   const flagged = stats.filter((d) => d.flagged);
   const apps = state.applications;
   const counts = {
-    applied: apps.filter((a) => a.status === 'Applied').length,
     interview: apps.filter((a) => a.status === 'Interview').length,
     rejected: apps.filter((a) => a.status === 'Rejected').length,
     offer: apps.filter((a) => a.status === 'Offer').length,
   };
-  const digest = buildDigest(state.jobs, appliedJobIds(), DIGEST_SIZE);
   const onboard = onboardingSteps();
 
+  actions.innerHTML = `
+    ${lastHunt ? `<button type="button" class="btn primary" id="d-refresh-hunt">Refresh hunt</button>` : ''}
+    <button type="button" class="btn" id="d-sample">Sample data</button>
+  `;
+
+  if (!onboard.complete && !hasJobs) {
+    root.innerHTML = `
+      <section class="hero">
+        <img class="hero-logo" src="./public/bootstraps-logo.jpg" alt="" />
+        <div class="hero-copy">
+          <p class="hero-kicker">${esc(APP_NAME)}</p>
+          <h2 class="hero-tagline">${esc(APP_TAGLINE)}</h2>
+          <p class="hero-sub muted">Three steps. Then the daily loop takes over.</p>
+        </div>
+      </section>
+      <div class="first-run-grid">
+        <button type="button" class="first-run-card" id="fr-api">
+          <span class="fr-n">1</span>
+          <strong>Connect Grok</strong>
+          <span class="dim">API key for resume + prep assist ${hasKey ? '✓' : ''}</span>
+        </button>
+        <button type="button" class="first-run-card" id="fr-resume">
+          <span class="fr-n">2</span>
+          <strong>Upload resume</strong>
+          <span class="dim">PDF → Master, Working, Profile ${hasResume ? '✓' : ''}</span>
+        </button>
+        <button type="button" class="first-run-card" id="fr-hunt">
+          <span class="fr-n">3</span>
+          <strong>Hunt from resume</strong>
+          <span class="dim">Public boards scored to you ${hasJobs ? '✓' : ''}</span>
+        </button>
+      </div>
+      <p class="dim" style="margin-top:1rem">Or <button type="button" class="btn" id="onboard-sample">load sample data</button> to explore without a resume.</p>
+      ${supportBlock()}
+    `;
+    $('#fr-api').onclick = () => { state.view = 'settings'; render(); };
+    $('#fr-resume').onclick = () => {
+      state.view = 'resumes';
+      render();
+      requestAnimationFrame(() => $('#resume-file')?.click());
+    };
+    $('#fr-hunt').onclick = () => {
+      state.view = 'jobs';
+      render();
+      requestAnimationFrame(() => $('#disc-hunt')?.click());
+    };
+    $('#onboard-sample')?.addEventListener('click', async () => {
+      try {
+        await loadSamplePack();
+        await reloadAll();
+        toast('Sample loaded', 'ok');
+        render();
+      } catch (e) {
+        toast(e.message || String(e), 'err');
+      }
+    });
+    $('#d-refresh-hunt')?.addEventListener('click', () => refreshLastHunt());
+    $('#d-sample')?.addEventListener('click', () => $('#onboard-sample')?.click());
+    return;
+  }
+
   root.innerHTML = `
-    <section class="hero">
-      <img class="hero-logo" src="./public/bootstraps-logo.jpg" alt="Someone literally pulling themselves up by their bootstraps" />
+    <section class="hero compact-hero">
+      <img class="hero-logo" src="./public/bootstraps-logo.jpg" alt="" />
       <div class="hero-copy">
-        <p class="hero-kicker">${esc(APP_NAME)}</p>
-        <h2 class="hero-tagline">${esc(APP_TAGLINE)}</h2>
-        <p class="hero-sub muted">Local-first job hunt. Dual resumes. Rejection turns into climb fuel.</p>
+        <p class="hero-kicker">Daily loop</p>
+        <h2 class="hero-tagline">Hunt · shortlist · prepare · follow up</h2>
+        <p class="hero-sub muted">Score floor ${state.settings?.minJobScore ?? 35} · shortlist ${shortlistCount()} · overdue ${overdue.length}</p>
       </div>
     </section>
+
+    <div class="daily-loop">
+      <div class="loop-step ${hasResume ? 'done' : ''}">
+        <span class="loop-n">1</span>
+        <div>
+          <strong>Resume</strong>
+          <p class="dim">${hasResume ? 'Working resume ready' : 'Upload PDF to populate profile'}</p>
+        </div>
+        <button type="button" class="btn ${hasResume ? '' : 'primary'}" data-go="resumes">${hasResume ? 'Update' : 'Upload'}</button>
+      </div>
+      <div class="loop-step ${hasJobs ? 'done' : ''}">
+        <span class="loop-n">2</span>
+        <div>
+          <strong>Hunt</strong>
+          <p class="dim">${lastHunt ? `Last: ${formatDate(lastHunt.at)}` : 'Multi-board from your resume'}</p>
+        </div>
+        <div class="row-actions">
+          ${lastHunt ? `<button type="button" class="btn primary" id="loop-refresh">Refresh</button>` : ''}
+          <button type="button" class="btn primary" id="loop-hunt">Hunt</button>
+        </div>
+      </div>
+      <div class="loop-step">
+        <span class="loop-n">3</span>
+        <div>
+          <strong>Decide</strong>
+          <p class="dim">${worth.length} worth applying · ${shortlistCount()} shortlisted</p>
+        </div>
+        <button type="button" class="btn" data-go="jobs">Board</button>
+      </div>
+      <div class="loop-step ${overdue.length ? 'warn' : ''}">
+        <span class="loop-n">4</span>
+        <div>
+          <strong>Follow up</strong>
+          <p class="dim">${overdue.length} overdue · ${weekDue.length} this week</p>
+        </div>
+        <button type="button" class="btn" data-go="applications">Apps</button>
+      </div>
+    </div>
+
     ${
-      !onboard.complete
-        ? `<div class="onboard card">
-            <div class="onboard-head">
-              <h3>Get started</h3>
-              <span class="dim">${onboard.doneRequired}/${onboard.totalRequired} core steps</span>
-            </div>
-            <div class="onboard-progress"><i style="width:${Math.round((onboard.doneRequired / onboard.totalRequired) * 100)}%"></i></div>
-            <ul class="onboard-list">
-              ${onboard.steps
+      overdue.length
+        ? `<div class="banner warn">
+            <h3>Follow-ups due</h3>
+            <ul class="touch-list">
+              ${overdue
+                .slice(0, 5)
                 .map(
-                  (s) => `
-                <li class="${s.done ? 'done' : ''}">
-                  <span class="onboard-check">${s.done ? '✓' : '○'}</span>
-                  <button type="button" class="onboard-link" data-go="${s.view}">
-                    ${esc(s.label)}${s.optional ? ' <span class="dim">(optional)</span>' : ''}
-                  </button>
-                </li>`
+                  (a) =>
+                    `<li><strong>${esc(a.title)}</strong> · ${esc(a.company)} · ${formatTouchDate(a.nextTouchAt)}
+                    <button type="button" class="btn ghost" data-open-app="${a.id}">Open</button></li>`
                 )
                 .join('')}
             </ul>
-            <p class="dim" style="margin:0.75rem 0 0">New here? <button type="button" class="btn" id="onboard-sample">Load sample data</button> to see scoring, JDs on apps, and a flagged domain in one click.</p>
           </div>`
         : ''
     }
+
     ${
       flagged.length
         ? `<div class="banner warn">
-            <h3>High rejection density</h3>
+            <h3>Domain pressure</h3>
             <p class="muted" style="margin:0 0 0.5rem">${flagged
               .map((f) => `<strong>${esc(f.domain)}</strong>: ${esc(f.reason)}`)
               .join('<br/>')}</p>
-            <button type="button" class="btn primary" id="go-domains">Review domain intel</button>
+            <button type="button" class="btn primary" id="go-domains">Domain intel</button>
           </div>`
         : ''
     }
+
     <div class="stat-row">
       <div class="stat"><div class="n">${apps.length}</div><div class="l">Applications</div></div>
       <div class="stat"><div class="n">${counts.interview}</div><div class="l">Interviews</div></div>
       <div class="stat"><div class="n">${counts.rejected}</div><div class="l">Rejected</div></div>
       <div class="stat"><div class="n">${counts.offer}</div><div class="l">Offers</div></div>
-      <div class="stat"><div class="n">${state.jobs.length}</div><div class="l">Jobs scored</div></div>
-      <div class="stat"><div class="n">${digest.length}</div><div class="l">Digest picks</div></div>
+      <div class="stat"><div class="n">${worth.length}</div><div class="l">Worth applying</div></div>
+      <div class="stat"><div class="n">${shortlistCount()}</div><div class="l">Shortlist</div></div>
     </div>
-    <div class="card resume-status-card">
-      <h3>Resume status</h3>
-      <div class="resume-status-row">
-        <p class="muted" style="margin:0">
-          <span class="tag master">Master</span> ${state.master?.body ? `${state.master.body.length} chars · ${formatDate(state.master.updatedAt)}` : 'empty'}
-        </p>
-        <p class="muted" style="margin:0">
-          <span class="tag working">Working</span> ${state.working?.body ? `${state.working.body.length} chars · ${formatDate(state.working.updatedAt)}` : 'empty'}
-        </p>
-        <p class="dim" style="margin:0">${state.history.length} improvement events logged</p>
+
+    <div class="dash-split">
+      <div>
+        <h3 style="font-family:var(--serif);margin:1.1rem 0 0.5rem">Prepare next (${prepareQueue.length})</h3>
+        <div class="job-list">
+          ${
+            prepareQueue.length
+              ? prepareQueue.map((j) => jobCardHtml(j, { compact: true })).join('')
+              : `<div class="empty"><p>No high-score unapplied roles. Run <strong>Hunt</strong> or lower min score on the Job board.</p></div>`
+          }
+        </div>
+      </div>
+      <div>
+        <h3 style="font-family:var(--serif);margin:1.1rem 0 0.5rem">Shortlist</h3>
+        <div class="job-list">
+          ${
+            shortlist.length
+              ? shortlist.map((j) => jobCardHtml(j, { compact: true })).join('')
+              : `<div class="empty"><p>Star roles with ★ on the job board to build a shortlist.</p></div>`
+          }
+        </div>
       </div>
     </div>
-    <h3 style="font-family:var(--serif);margin:1.25rem 0 0.6rem">Top matches</h3>
-    <div class="job-list">
-      ${
-        digest.length
-          ? digest
-              .slice(0, 5)
-              .map((j) => jobCardHtml(j, { compact: true }))
-              .join('')
-          : `<div class="empty"><h3>No ranked jobs yet</h3><p>Use <strong>Discover jobs</strong> (multi-board) or <strong>Paste links</strong>, or load sample data.</p></div>`
-      }
+    <div class="weekly-review">
+      <h3 style="margin:0 0 0.35rem;font-family:var(--serif)">This week at a glance</h3>
+      <p class="muted" style="margin:0">
+        Applied ${apps.filter((a) => a.appliedAt && a.appliedAt > Date.now() - 7 * 86400000).length}
+        · Interviews ${counts.interview}
+        · Rejected ${counts.rejected}
+        · Offers ${counts.offer}
+        · Flagged domains ${flagged.length}
+        · Jobs in library ${state.jobs.length}
+      </p>
+      <p class="dim" style="margin:0.4rem 0 0">Keys: <kbd>H</kbd> hunt · <kbd>U</kbd> upload · <kbd>J</kbd> jobs · <kbd>A</kbd> apps · <kbd>D</kbd> home · <kbd>R</kbd> refresh hunt · <kbd>?</kbd> help</p>
     </div>
     ${supportBlock()}
   `;
-  const runSample = async () => {
-    if (
-      (state.jobs.length || state.applications.length || resumeBody().trim()) &&
-      !confirm('Load sample pack? This adds demo resume, profile, jobs, and applications (does not wipe your data — may add alongside).')
-    ) {
-      return;
-    }
+
+  $('#d-refresh-hunt')?.addEventListener('click', () => refreshLastHunt());
+  $('#d-sample')?.addEventListener('click', async () => {
     try {
-      const r = await loadSamplePack();
+      await loadSamplePack();
       await reloadAll();
-      toast(`Sample loaded: ${r.jobs} jobs, ${r.applications} apps with JDs`, 'ok');
+      toast('Sample loaded', 'ok');
       render();
-    } catch (err) {
-      toast(err.message || String(err), 'err');
+    } catch (e) {
+      toast(e.message || String(e), 'err');
     }
-  };
-  $('#d-upload').onclick = () => {
-    state.view = 'resumes';
-    render();
-    requestAnimationFrame(() => $('#resume-file')?.click());
-  };
-  $('#d-discover').onclick = () => {
+  });
+  $('#loop-refresh')?.addEventListener('click', () => refreshLastHunt());
+  $('#loop-hunt')?.addEventListener('click', () => {
     state.view = 'jobs';
     render();
-    requestAnimationFrame(() => $('#j-discover')?.click());
-  };
-  $('#d-links').onclick = () => openPasteLinks();
-  $('#d-fetch').onclick = () => fetchJobs();
-  $('#d-digest').onclick = () => {
-    state.view = 'digest';
-    render();
-  };
-  $('#d-sample').onclick = runSample;
-  $('#onboard-sample')?.addEventListener('click', runSample);
+    requestAnimationFrame(() => $('#disc-hunt')?.click());
+  });
   $('#go-domains')?.addEventListener('click', () => {
     state.view = 'domains';
     render();
@@ -491,6 +690,13 @@ function renderDashboard(root, actions) {
       render();
     };
   });
+  root.querySelectorAll('[data-open-app]').forEach((btn) => {
+    btn.onclick = () => {
+      state.view = 'applications';
+      render();
+      requestAnimationFrame(() => openAppEditor(btn.dataset.openApp));
+    };
+  });
   bindJobCards(root);
 }
 
@@ -498,14 +704,15 @@ function renderDashboard(root, actions) {
 
 function renderDigest(root, actions) {
   actions.innerHTML = `<button type="button" class="btn primary" id="dig-refresh">Refresh scores</button>`;
-  const digest = buildDigest(state.jobs, appliedJobIds(), DIGEST_SIZE);
+  // Worth-applying shelf = digest with score floor + no deal-breakers
+  const digest = visibleJobs('worth').slice(0, DIGEST_SIZE.max);
   root.innerHTML = `
-    <p class="muted" style="margin-top:0">High-fit opportunities vs your <strong>Working Resume</strong> + profile. Aim for ${DIGEST_SIZE.min}–${DIGEST_SIZE.max} applications with intent, not spray.</p>
+    <p class="muted" style="margin-top:0">Worth applying: score ≥ <strong>${state.settings?.minJobScore ?? 35}</strong>, deal-breakers hidden, not yet applied. Aim for ${DIGEST_SIZE.min}–${DIGEST_SIZE.max} intentional apps.</p>
     <div class="job-list">
       ${
         digest.length
           ? digest.map((j) => jobCardHtml(j)).join('')
-          : `<div class="empty"><h3>Digest empty</h3><p>Fetch jobs or loosen deal-breakers / skills in Profile.</p></div>`
+          : `<div class="empty"><h3>Digest empty</h3><p>Run <strong>Hunt from resume</strong> or lower the min score on the Job board.</p></div>`
       }
     </div>
   `;
@@ -521,51 +728,86 @@ function renderDigest(root, actions) {
 // ── Jobs ───────────────────────────────────────────────────
 
 function renderJobs(root, actions) {
+  const minScore = Number(state.settings?.minJobScore ?? 35);
+  const hideDb = state.settings?.hideDealBreakers !== false;
+  const lastHunt = state.settings?.lastHunt;
   actions.innerHTML = `
-    <button type="button" class="btn primary" id="j-discover">Discover</button>
-    <button type="button" class="btn primary" id="j-links">Paste links</button>
+    ${lastHunt ? `<button type="button" class="btn primary" id="j-refresh">Refresh hunt</button>` : ''}
+    <button type="button" class="btn primary" id="j-discover">Hunt</button>
+    <button type="button" class="btn" id="j-links">Paste links</button>
     <button type="button" class="btn" id="j-bulk">Bulk import</button>
     <button type="button" class="btn" id="j-manual">Add manual</button>
-    <button type="button" class="btn" id="j-fetch">Remotive only</button>
   `;
-  let jobs = state.jobs;
-  if (state.jobQ) {
-    const q = state.jobQ.toLowerCase();
-    jobs = jobs.filter(
-      (j) =>
-        (j.title || '').toLowerCase().includes(q) ||
-        (j.company || '').toLowerCase().includes(q) ||
-        (j.url || '').toLowerCase().includes(q) ||
-        (j.source || '').toLowerCase().includes(q)
-    );
-  }
+  let jobs = visibleJobs(state.jobShelf);
+  const shelfBtn = (id, label, count) =>
+    `<button type="button" class="btn ${state.jobShelf === id ? 'primary' : ''}" data-shelf="${id}">${label}${count != null ? ` (${count})` : ''}</button>`;
+  const worthN = visibleJobs('worth').length;
+  const allN = filterJobs(state.jobs, {
+    minScore: 0,
+    hideDealBreakers: hideDb,
+    profile: state.profile,
+    q: state.jobQ,
+  }).length;
+
   root.innerHTML = `
     <div id="discovery-panel" class="discovery-panel"></div>
-    <div class="filter-row">
-      <input class="search" id="job-q" placeholder="Filter loaded jobs…" value="${esc(state.jobQ)}" />
-      <span class="dim">${jobs.length} shown · multi-source discovery + paste links</span>
+    <div class="filter-row job-filter-bar">
+      ${shelfBtn('worth', 'Worth applying', worthN)}
+      ${shelfBtn('shortlist', 'Shortlist', shortlistCount())}
+      ${shelfBtn('all', 'All scored', allN)}
+      <label class="filter-inline">Min score
+        <input type="number" id="job-minscore" min="0" max="100" value="${minScore}" style="width:4rem" />
+      </label>
+      <label class="filter-inline check-inline">
+        <input type="checkbox" id="job-hidedb" ${hideDb ? 'checked' : ''} /> Hide deal-breakers
+      </label>
+      <input class="search" id="job-q" placeholder="Filter…" value="${esc(state.jobQ)}" />
+      <span class="dim">${jobs.length} shown</span>
     </div>
     <div class="job-list">
       ${
         jobs.length
           ? jobs.map((j) => jobCardHtml(j)).join('')
-          : `<div class="empty"><h3>No jobs yet</h3><p>Open <strong>Discover</strong> to pull Remotive, Remote OK, Arbeitnow, Jobicy (and optional Himalayas), or <strong>Paste links</strong> for Greenhouse / Lever / Ashby / career pages you’ve saved. Everything is scored against your Working resume.</p></div>`
+          : `<div class="empty"><h3>Nothing on this shelf</h3>
+             <p>${
+               state.jobShelf === 'shortlist'
+                 ? 'Star jobs with ☆ to shortlist them.'
+                 : state.jobShelf === 'worth'
+                   ? 'No unapplied roles above the score floor. Run <strong>Hunt from resume</strong>, lower min score, or open <strong>All scored</strong>.'
+                   : 'Run Hunt or paste links to populate the board.'
+             }</p></div>`
       }
     </div>
+    <div id="job-drawer-host"></div>
   `;
   mountDiscoveryPanel($('#discovery-panel'));
+  if (state.drawerJobId) openJobDrawer(state.drawerJobId, { skipRender: true, host: $('#job-drawer-host') });
+
+  $('#j-refresh')?.addEventListener('click', () => refreshLastHunt());
   $('#j-discover').onclick = () => {
     const panel = $('#discovery-panel');
     if (panel) {
       panel.hidden = false;
       panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      $('#disc-search')?.focus();
     }
   };
-  $('#j-fetch').onclick = () => fetchJobs();
   $('#j-manual').onclick = () => openManualJob();
   $('#j-bulk').onclick = () => openBulkImport();
   $('#j-links').onclick = () => openPasteLinks();
+  root.querySelectorAll('[data-shelf]').forEach((btn) => {
+    btn.onclick = () => {
+      state.jobShelf = btn.dataset.shelf;
+      render();
+    };
+  });
+  $('#job-minscore').onchange = async (e) => {
+    state.settings = await setSettings({ minJobScore: Number(e.target.value) || 0 });
+    render();
+  };
+  $('#job-hidedb').onchange = async (e) => {
+    state.settings = await setSettings({ hideDealBreakers: e.target.checked });
+    render();
+  };
   $('#job-q').addEventListener('keydown', async (e) => {
     if (e.key === 'Enter') {
       state.jobQ = e.target.value.trim();
@@ -575,6 +817,8 @@ function renderJobs(root, actions) {
   bindJobCards(root);
 }
 
+
+
 async function mountDiscoveryPanel(host) {
   if (!host) return;
   const catalog = await loadSourceCatalog();
@@ -583,6 +827,7 @@ async function mountDiscoveryPanel(host) {
   const defaultSearch = defaultSearchFromProfile(state.profile);
   const sources = catalog.length ? catalog : DISCOVERY_SOURCES;
   const hasResume = !!resumeBody().trim();
+  const lastHunt = state.settings?.lastHunt;
 
   host.hidden = false;
   host.innerHTML = `
@@ -591,17 +836,16 @@ async function mountDiscoveryPanel(host) {
         <div>
           <h3 style="margin:0">Automated job hunt</h3>
           <p class="dim" style="margin:0.25rem 0 0">
-            Not LinkedIn/Indeed (walled gardens). We query <strong>public remote boards</strong> with
-            queries derived from your resume + profile, then score every role locally.
+            Public remote boards only (not LinkedIn/Indeed). Queries from your resume + profile, then local scoring.
           </p>
         </div>
-        <span class="tag ${health.discover ? '' : 'soft'}" id="disc-health">${
+        <span class="tag ${health.discover ? '' : 'soft'}">${
           health.discover ? 'API ready' : esc(health.reason || 'restart ./start.sh')
         }</span>
       </div>
 
-      <div class="hunt-plan" id="hunt-plan">
-        <div class="hunt-plan-label">Hunt plan from your resume / profile</div>
+      <div class="hunt-plan">
+        <div class="hunt-plan-label">Hunt plan</div>
         <div class="hunt-queries">
           ${
             plan.queries.length
@@ -610,8 +854,9 @@ async function mountDiscoveryPanel(host) {
           }
         </div>
         <p class="dim" style="margin:0.4rem 0 0">
-          Min match score <strong>${plan.minScore}</strong> · sources: public boards only
-          ${hasResume ? '' : ' · <span style="color:var(--warn)">no Working resume yet</span>'}
+          Min score <strong id="plan-minscore-label">${state.settings?.minJobScore ?? plan.minScore}</strong>
+          ${hasResume ? '' : ' · <span style="color:var(--warn)">no Working resume</span>'}
+          ${lastHunt ? ` · last run ${formatDate(lastHunt.at)}` : ''}
         </p>
       </div>
 
@@ -619,21 +864,22 @@ async function mountDiscoveryPanel(host) {
         <button type="button" class="btn primary" id="disc-hunt" ${
           !hasResume || !health.discover ? 'disabled' : ''
         }>Hunt from resume</button>
+        ${lastHunt ? `<button type="button" class="btn primary" id="disc-refresh">Refresh last hunt</button>` : ''}
         <button type="button" class="btn" id="disc-run">Custom discover</button>
+        <button type="button" class="btn ghost" id="disc-grok-q">Grok refine queries</button>
         <button type="button" class="btn" id="disc-links">Paste links…</button>
-        <button type="button" class="btn ghost" id="disc-hide">Hide panel</button>
+        <button type="button" class="btn ghost" id="disc-hide">Hide</button>
       </div>
 
       <details class="disc-advanced" style="margin-top:0.85rem">
-        <summary>Advanced — edit keywords &amp; sources</summary>
+        <summary>Advanced — sources &amp; limits</summary>
         <div class="field" style="margin-top:0.75rem">
-          <label>Extra keywords (optional, comma-separated)</label>
-          <input id="disc-search" value="${esc(defaultSearch)}" placeholder="e.g. data analyst, policy research, SQL" />
-          <p class="dim" style="margin:0.25rem 0 0">Merged with the hunt plan. Or use Custom discover with only these terms.</p>
+          <label>Extra keywords (comma-separated)</label>
+          <input id="disc-search" value="${esc(defaultSearch)}" />
         </div>
         <div class="field">
           <label>Sources</label>
-          <div class="source-grid" id="disc-sources">
+          <div class="source-grid">
             ${sources
               .map(
                 (s) => `
@@ -647,12 +893,12 @@ async function mountDiscoveryPanel(host) {
         </div>
         <div class="grid-2">
           <div class="field">
-            <label>Max roles to pull</label>
+            <label>Max roles</label>
             <input id="disc-limit" type="number" min="10" max="100" value="50" />
           </div>
           <div class="field">
-            <label>Min score to highlight</label>
-            <input id="disc-minscore" type="number" min="0" max="100" value="${plan.minScore}" />
+            <label>Min score floor</label>
+            <input id="disc-minscore" type="number" min="0" max="100" value="${state.settings?.minJobScore ?? plan.minScore}" />
           </div>
         </div>
       </details>
@@ -667,16 +913,17 @@ async function mountDiscoveryPanel(host) {
     host.hidden = true;
   };
   $('#disc-links', host).onclick = () => openPasteLinks();
+  $('#disc-refresh', host)?.addEventListener('click', () => refreshLastHunt());
 
   const runHunt = async (mode) => {
     if (state.busy) return;
     const selected = selectedSources();
     if (!selected.length) {
-      toast('Pick at least one source (open Advanced)', 'err');
+      toast('Pick at least one source (Advanced)', 'err');
       return;
     }
     if (mode === 'hunt' && !resumeBody().trim()) {
-      toast('Upload a resume first (Resumes tab)', 'err');
+      toast('Upload a resume first', 'err');
       return;
     }
     state.busy = true;
@@ -685,10 +932,11 @@ async function mountDiscoveryPanel(host) {
     const status = $('#disc-status', host);
     if (huntBtn) huntBtn.disabled = true;
     if (customBtn) customBtn.disabled = true;
-    status.textContent = mode === 'hunt' ? 'Building hunt from resume…' : 'Querying boards…';
+    status.textContent = mode === 'hunt' ? 'Hunting from resume…' : 'Querying boards…';
     try {
       const limit = Number($('#disc-limit', host)?.value) || 50;
       const minScore = Number($('#disc-minscore', host)?.value) || 0;
+      state.settings = await setSettings({ minJobScore: minScore });
       const extra = ($('#disc-search', host)?.value || '')
         .split(/[,;]+/)
         .map((s) => s.trim())
@@ -706,14 +954,11 @@ async function mountDiscoveryPanel(host) {
               status.textContent = `Plan: ${(meta.plan?.queries || []).join(' · ')}`;
               return;
             }
-            if (job) {
-              status.textContent = `Scoring ${done}/${total} — ${job.title || '…'} (${job.score ?? 0})`;
-            }
+            if (job) status.textContent = `Scoring ${done}/${total} — ${job.title || '…'} (${job.score ?? 0})`;
           },
         });
       } else {
-        const search = ($('#disc-search', host)?.value || '').trim();
-        const queries = extra.length ? extra : search ? [search] : plan.queries;
+        const queries = extra.length ? extra : plan.queries;
         r = await discoverJobs(
           { sources: selected, queries, search: queries[0] || '', limit, minScore },
           state.profile,
@@ -723,25 +968,21 @@ async function mountDiscoveryPanel(host) {
             status.textContent = `Scoring ${done}/${total} — ${job.title || '…'} (${job.score ?? 0})`;
           }
         );
+        r.plan = { queries, sources: selected, minScore, limit };
       }
 
-      const errKeys = Object.keys(r.errors || {});
-      const countBits = Object.entries(r.counts || {})
-        .map(([k, v]) => `${k}:${v}`)
-        .join(' · ');
-      const qBits = (r.queries || []).join(' · ');
+      await saveLastHunt(r.plan || { queries: r.queries, sources: selected, minScore, limit });
       await reloadAll();
-      const top = (r.jobs || []).filter((j) => (j.score || 0) >= (minScore || 0)).length;
+      state.jobShelf = 'worth';
+      const top = (r.allScored || r.jobs || []).filter((j) => (j.score || 0) >= minScore).length;
+      const errKeys = Object.keys(r.errors || {});
       toast(
-        `Hunt: +${r.added} new · ${r.updated} updated · ${r.total} pulled · ${top} ≥ score ${minScore}${
-          errKeys.length ? ` · ${errKeys.length} source issue(s)` : ''
-        }`,
+        `Hunt: +${r.added} new · ${r.updated} updated · ${r.total} pulled · ${top} ≥ ${minScore}`,
         r.total ? 'ok' : 'err'
       );
-      status.textContent = `Queries: ${qBits || '—'} · ${countBits || 'no counts'}${
-        errKeys.length ? ` · errors: ${errKeys.map((k) => `${k}=${r.errors[k]}`).join('; ')}` : ''
-      }. Sort job list by score (default).`;
-      state.jobQ = '';
+      status.textContent = `Queries: ${(r.queries || []).join(' · ')} · ${Object.entries(r.counts || {})
+        .map(([k, v]) => k + ':' + v)
+        .join(' · ')}${errKeys.length ? ' · issues: ' + errKeys.join(', ') : ''}`;
       render();
     } catch (err) {
       toast(err.message || String(err), 'err');
@@ -755,60 +996,50 @@ async function mountDiscoveryPanel(host) {
 
   $('#disc-hunt', host).onclick = () => runHunt('hunt');
   $('#disc-run', host).onclick = () => runHunt('custom');
+
+  $('#disc-grok-q', host)?.addEventListener('click', async () => {
+    if (!state.settings?.llmApiKey) {
+      toast('Add Grok API key in Settings first', 'err');
+      return;
+    }
+    const status = $('#disc-status', host);
+    status.textContent = 'Grok is refining hunt queries…';
+    try {
+      const { system, user } = huntQueriesPrompt({
+        profile: state.profile,
+        resumeText: resumeBody(),
+      });
+      const { content } = await chatCompletion({
+        baseUrl: state.settings.llmBaseUrl,
+        apiKey: state.settings.llmApiKey,
+        model: state.settings.fastModel,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        temperature: 0.3,
+        purpose: 'hunt-queries',
+        tier: 'fast',
+      });
+      const parsed = parseModelJson(content);
+      const qs = (parsed.queries || []).map(String).filter(Boolean);
+      if (!qs.length) throw new Error('No queries returned');
+      const inp = $('#disc-search', host);
+      if (inp) inp.value = qs.join(', ');
+      const planEl = host.querySelector('.hunt-queries');
+      if (planEl) {
+        planEl.innerHTML = qs.map((q) => `<span class="tag hunt-q">${esc(q)}</span>`).join('');
+      }
+      status.textContent = `Grok queries: ${qs.join(' · ')} — click Hunt or Custom discover`;
+      toast('Queries refined — run Hunt', 'ok');
+    } catch (err) {
+      status.textContent = err.message || String(err);
+      toast(err.message || String(err), 'err');
+    }
+  });
+
 }
 
-function scoreClass(score) {
-  if (score >= 60) return '';
-  if (score >= 40) return 'mid';
-  return 'low';
-}
-
-function jobCardHtml(j, { compact } = {}) {
-  const domains = (j.domains || []).map((d) => `<span class="tag">${esc(d)}</span>`).join('');
-  const desc = compact
-    ? ''
-    : `<p class="dim" style="margin:0.4rem 0 0">${esc((j.description || '').slice(0, 220))}${(j.description || '').length > 220 ? '…' : ''}</p>`;
-  const breakdown = scoreBreakdownHtml(j);
-  return `
-    <article class="job-card" data-job-id="${j.id}">
-      <div>
-        <h3>${esc(j.title)}</h3>
-        <div class="job-meta">${esc(j.company)} · ${esc(j.source)} · ${formatDate(j.fetchedAt)}</div>
-        <div style="margin-top:0.35rem">${domains}<span class="tag">${esc(j.source || '—')}</span>${
-          j.category ? `<span class="tag">${esc(j.category)}</span>` : ''
-        }</div>
-        ${desc}
-        ${breakdown}
-      </div>
-      <div class="row-actions" style="flex-direction:column;align-items:flex-end">
-        <span class="score-pill ${scoreClass(j.score || 0)}" title="Match score vs Working resume + profile">${j.score ?? 0}</span>
-        <div class="row-actions" style="margin-top:0.4rem">
-          <button type="button" class="btn primary" data-prepare="${j.id}">Prepare</button>
-          <button type="button" class="btn" data-apply="${j.id}">Log apply</button>
-          ${j.url ? `<a class="btn ghost" href="${esc(j.url)}" target="_blank" rel="noopener">Open</a>` : ''}
-          <button type="button" class="btn ghost" data-dismiss="${j.id}">Hide</button>
-        </div>
-      </div>
-    </article>`;
-}
-
-function bindJobCards(root) {
-  root.querySelectorAll('[data-prepare]').forEach((btn) => {
-    btn.onclick = () => prepareForJob(btn.dataset.prepare);
-  });
-  root.querySelectorAll('[data-apply]').forEach((btn) => {
-    btn.onclick = () => logApplyFromJob(btn.dataset.apply);
-  });
-  root.querySelectorAll('[data-dismiss]').forEach((btn) => {
-    btn.onclick = async () => {
-      const job = state.jobs.find((j) => j.id === btn.dataset.dismiss);
-      if (!job) return;
-      await putJob({ ...job, dismissed: true });
-      await reloadAll();
-      render();
-    };
-  });
-}
 
 async function fetchJobs() {
   if (state.busy) return;
@@ -1302,6 +1533,15 @@ function openAppEditor(id) {
         </div>
       </div>
       <div class="field"><label>Notes</label><textarea id="ap-notes" rows="3">${esc(existing?.notes || '')}</textarea></div>
+      <div class="field"><label>Next follow-up</label>
+        <input type="date" id="ap-touch" value="${existing?.nextTouchAt ? new Date(existing.nextTouchAt).toISOString().slice(0, 10) : ''}" />
+        <p class="dim" style="margin:0.25rem 0 0">
+          Quick: <button type="button" class="btn ghost" data-touch-days="1" type="button">+1d</button>
+          <button type="button" class="btn ghost" data-touch-days="3">+3d</button>
+          <button type="button" class="btn ghost" data-touch-days="7">+7d</button>
+          <button type="button" class="btn ghost" data-touch-days="0">Clear</button>
+        </p>
+      </div>
       <div class="field"><label>Job description (saved for learning loop)</label><textarea id="ap-jd" rows="8" placeholder="Paste the full JD here…">${esc(existing?.jobDescription || '')}</textarea></div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" id="ap-cancel">Cancel</button>
@@ -1311,6 +1551,20 @@ function openAppEditor(id) {
   document.body.appendChild(backdrop);
   const close = () => backdrop.remove();
   $('#ap-cancel', backdrop).onclick = close;
+  backdrop.querySelectorAll('[data-touch-days]').forEach((btn) => {
+    btn.onclick = (e) => {
+      e.preventDefault();
+      const n = Number(btn.dataset.touchDays);
+      const inp = $('#ap-touch', backdrop);
+      if (!inp) return;
+      if (n === 0) {
+        inp.value = '';
+        return;
+      }
+      const d = new Date(daysFromNow(n));
+      inp.value = d.toISOString().slice(0, 10);
+    };
+  });
   $('#ap-save', backdrop).onclick = async () => {
     const payload = {
       title: $('#ap-title', backdrop).value.trim(),
@@ -1320,6 +1574,12 @@ function openAppEditor(id) {
       status: $('#ap-status', backdrop).value,
       notes: $('#ap-notes', backdrop).value,
       jobDescription: $('#ap-jd', backdrop).value,
+      nextTouchAt: (() => {
+        const v = $('#ap-touch', backdrop)?.value;
+        if (!v) return null;
+        const d = new Date(v + 'T12:00:00');
+        return Number.isNaN(d.getTime()) ? null : d.getTime();
+      })(),
     };
     if (!payload.title) {
       toast('Title required', 'err');
@@ -1355,11 +1615,82 @@ async function logApplyFromJob(jobId) {
     notes: '',
     jobDescription: job.description || '',
     resumeBase: 'working',
+    nextTouchAt: daysFromNow(7),
   });
   await reloadAll();
   toast(job.description ? 'Logged as Applied · JD saved' : 'Logged as Applied · no JD on this listing', 'ok');
   state.view = 'applications';
   render();
+}
+
+
+function openJobDrawer(jobId, opts = {}) {
+  if (!jobId) return;
+  const job = state.jobs.find((j) => j.id === jobId);
+  if (!job) return;
+  state.drawerJobId = jobId;
+  const host = opts.host || document.getElementById('job-drawer-host') || (() => {
+    const d = document.createElement('div');
+    d.id = 'job-drawer-host';
+    document.body.appendChild(d);
+    return d;
+  })();
+  const br = job.scoreBreakdown || {};
+  const dbHits = dealBreakerHits(job, state.profile);
+  const why = [];
+  if (br.skillOverlap != null) why.push(`Skills overlap ${(br.skillOverlap * 100).toFixed(0)}%`);
+  if (br.keywordOverlap != null) why.push(`Keywords ${(br.keywordOverlap * 100).toFixed(0)}%`);
+  if (br.domainBoost != null) why.push(`Domain fit ${(br.domainBoost * 100).toFixed(0)}%`);
+  if (br.salaryFit != null) why.push(`Salary fit ${(br.salaryFit * 100).toFixed(0)}%`);
+  if (br.penalty) why.push(`Penalties −${(br.penalty * 100).toFixed(0)}%`);
+  if (dbHits.length) why.push(`Deal-breakers: ${dbHits.join(', ')}`);
+
+  host.innerHTML = `
+    <div class="drawer-backdrop" id="drawer-bg">
+      <aside class="job-drawer" role="dialog" aria-label="Job detail">
+        <header class="drawer-head">
+          <div>
+            <h2 style="margin:0">${esc(job.title)}</h2>
+            <p class="dim" style="margin:0.25rem 0 0">${esc(job.company)} · ${esc(job.source)} · score ${job.score ?? 0}</p>
+          </div>
+          <button type="button" class="btn ghost" id="drawer-close">Close</button>
+        </header>
+        <div class="drawer-body">
+          <p class="muted"><strong>Why this matched</strong></p>
+          <ul class="why-list">${why.map((w) => `<li>${esc(w)}</li>`).join('') || '<li class="dim">No breakdown</li>'}</ul>
+          ${scoreBreakdownHtml(job)}
+          <p class="muted" style="margin-top:1rem"><strong>Description</strong></p>
+          <pre class="jd-pre">${esc((job.description || '').slice(0, 8000))}</pre>
+        </div>
+        <footer class="drawer-foot row-actions">
+          <button type="button" class="btn ghost" data-star-drawer="${job.id}">${job.shortlisted ? '★ Shortlisted' : '☆ Shortlist'}</button>
+          <button type="button" class="btn primary" id="drawer-prep">Prepare</button>
+          <button type="button" class="btn" id="drawer-apply">Log apply</button>
+          ${job.url ? `<a class="btn" href="${esc(job.url)}" target="_blank" rel="noopener">Open listing</a>` : ''}
+        </footer>
+      </aside>
+    </div>`;
+  const close = () => {
+    state.drawerJobId = null;
+    host.innerHTML = '';
+  };
+  $('#drawer-close', host).onclick = close;
+  $('#drawer-bg', host).onclick = (e) => {
+    if (e.target.id === 'drawer-bg') close();
+  };
+  $('#drawer-prep', host).onclick = () => {
+    close();
+    prepareForJob(job.id);
+  };
+  $('#drawer-apply', host).onclick = () => {
+    close();
+    logApplyFromJob(job.id);
+  };
+  host.querySelector('[data-star-drawer]')?.addEventListener('click', async () => {
+    await putJob({ ...job, shortlisted: !job.shortlisted });
+    await reloadAll();
+    openJobDrawer(job.id, { host });
+  });
 }
 
 // ── Prepare application (local free + optional Grok) ───────
@@ -1411,6 +1742,7 @@ async function prepareForJob(jobId) {
         <p class="dim" id="p-summary">${esc(local.changesSummary)}</p>
         <div class="modal-actions">
           <button type="button" class="btn" id="p-copy">Copy pack</button>
+        <button type="button" class="btn" id="p-export-md">Export MD pack</button>
           <button type="button" class="btn primary" id="p-log">Save to application log</button>
         </div>
       </div>
@@ -1476,6 +1808,17 @@ async function prepareForJob(jobId) {
     if (t?.id === 'p-copy') {
       await navigator.clipboard.writeText($('#p-resume', backdrop).value || '');
       toast('Copied', 'ok');
+    }
+    if (t?.id === 'p-export-md') {
+      const resume = $('#p-resume', backdrop).value || '';
+      const note = $('#p-note', backdrop).value || '';
+      const md = `# ${job.title} — ${job.company}\n\nURL: ${job.url || '—'}\nScore: ${job.score ?? '—'}\n\n## Cover note\n\n${note || '_none_'}\n\n## Tailored resume\n\n${resume}\n`;
+      downloadText(
+        `prep-${(job.company || 'role').replace(/\s+/g, '-').slice(0, 40)}.md`,
+        md,
+        'text/markdown'
+      );
+      toast('Exported prep pack', 'ok');
     }
     if (t?.id === 'p-log') {
       const domain = (job.domains && job.domains[0]) || 'Other';

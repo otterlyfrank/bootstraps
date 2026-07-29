@@ -102,6 +102,28 @@ Use job descriptions when available; otherwise titles, notes, and resume mismatc
 }
 
 /**
+ * Optional: turn resume/profile into board search queries.
+ */
+export function huntQueriesPrompt({ profile, resumeText }) {
+  return {
+    system: `You design job-board search queries for remote roles.
+Output strict JSON only:
+{ "queries": ["3-8 short search strings"], "titles": ["likely job titles"], "rationale": "one sentence" }
+Rules:
+- Queries must be short (1-4 words) for Remotive/RemoteOK-style boards.
+- Prefer concrete titles and tools (e.g. "data analyst", "SQL", "policy research").
+- No company names. No location codes. Remote is already assumed.
+- Do not invent skills not present in the resume/profile.`,
+    user: `PROFILE skills: ${(profile?.skills || []).join(', ') || '—'}
+Keywords: ${(profile?.experienceKeywords || []).join(', ') || '—'}
+Domains: ${(profile?.preferredDomains || []).join(', ') || '—'}
+
+RESUME (excerpt):
+${(resumeText || '').slice(0, 6000)}`,
+  };
+}
+
+/**
  * Structure a raw resume into plain text + profile fields for Bootstraps.
  */
 export function parseResumePrompt({ resumeText }) {

@@ -50,6 +50,23 @@ export async function checkDiscovery() {
 /**
  * Score + upsert a normalized stub.
  */
+
+/** Collapse near-duplicate titles at same company. */
+function dedupeJobs(jobs) {
+  const seen = new Set();
+  const out = [];
+  for (const j of jobs) {
+    const key = `${(j.company || '').toLowerCase().trim()}|${(j.title || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(j);
+  }
+  return out;
+}
+
 async function upsertScored(raw, profile, resumeBody, knownDomains) {
   const url = normalizeJobUrl(raw.url || '');
   const existing =
@@ -98,7 +115,7 @@ export async function discoverJobs(
   const data = await res.json();
   if (!data.ok) throw new Error(data.error || 'Discover failed');
 
-  const stubs = data.jobs || [];
+  const stubs = dedupeJobs(data.jobs || []);
   let added = 0;
   let updated = 0;
   let belowFloor = 0;
