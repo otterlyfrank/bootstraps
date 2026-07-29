@@ -1,5 +1,5 @@
 /* Bootstraps service worker — shell cache for installability + offline reopen */
-const CACHE = 'bootstraps-shell-v1';
+const CACHE = 'bootstraps-shell-v3';
 
 const PRECACHE = [
   './',
@@ -8,6 +8,7 @@ const PRECACHE = [
   './src/main.js',
   './src/app.js',
   './src/config.js',
+  './src/pwa.js',
   './src/storage/db.js',
   './src/ai/client.js',
   './src/ai/prompts.js',
@@ -15,12 +16,30 @@ const PRECACHE = [
   './src/jobs/match.js',
   './src/jobs/learning.js',
   './src/jobs/hints.js',
+  './src/jobs/discovery.js',
+  './src/jobs/links.js',
   './src/lib/export.js',
   './src/lib/diff.js',
   './src/lib/sample.js',
+  './src/lib/job-filters.js',
+  './src/lib/hunt-presets.js',
+  './src/lib/onboarding-wizard.js',
+  './src/lib/extract-document.js',
+  './src/lib/a11y.js',
+  './src/ui/dom.js',
+  './src/ui/score-ui.js',
+  './src/ui/job-cards.js',
+  './src/ui/climb-timeline.js',
+  './src/ui/command-palette.js',
+  './src/ui/print-pack.js',
+  './src/ui/discover-progress.js',
+  './src/ui/session-mode.js',
+  './src/resume/ingest.js',
   './public/bootstraps-logo.jpg',
+  './public/bootstraps-mark.svg',
   './public/icon-192.png',
   './public/icon-512.png',
+  './public/apple-touch-icon.png',
   './manifest.webmanifest',
 ];
 
@@ -78,6 +97,6 @@ async function networkFirst(req) {
       const shell = await cache.match('./index.html');
       if (shell) return shell;
     }
-    throw new Error('Offline and not cached');
+    throw new Error('Offline and not cached: ' + req.url);
   }
 }

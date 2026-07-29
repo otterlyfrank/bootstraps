@@ -121,6 +121,16 @@ export async function discoverJobs(
   let belowFloor = 0;
   const jobs = [];
 
+  // Boards returned — let UI paint per-source counts before scoring
+  if (onProgress) {
+    onProgress(0, stubs.length, null, {
+      phase: 'boards',
+      counts: data.counts || {},
+      errors: data.errors || {},
+      queries: data.queries || queries || [],
+    });
+  }
+
   for (let i = 0; i < stubs.length; i++) {
     const j = stubs[i];
     const raw = normalizeManual({

@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.10.0 — 2026-07-29
+
+### Finish audit stretch goals + UI modules
+
+- **⌘K command palette** — jump to any view, hunt, upload, session, export
+- **Climb timeline** on Home — 8-week sparklines (apps + interviews) + Working resume evolution ticks
+- **Application pack** — printable paper preview on ATS + open print window / Save PDF
+- **Session mode** (`S` or topbar) — dim chrome, focus hunt loop, prepare goal HUD
+- **Per-source hunt progress** — board counts, scoring bar, error dots during discover
+- **UI modules** under `src/ui/` (dom, score, cards, climb, palette, print, progress, session)
+- **Fonts** — system-first stack (fast offline LCP); optional DM Sans / Newsreader progressive enhancement
+- SW precache **v3** for new UI modules
+- Extra unit coverage for climb buckets + pack markdown
+
+## 1.9.0 — 2026-07-29
+
+### Cross-functional audit P0–P1 polish
+
+- **Mobile bottom nav** (Home · Hunt · ATS · Pipeline · More) — sidebar no longer leaves phone users stranded
+- **Partial shell re-render** — chrome stays mounted; content swaps; skip link + `aria-current`
+- **A11y:** focus trap + Escape on wizard/drawer, `aria-live` toasts, `prefers-reduced-motion`, hit targets
+- **SW v2** — full module precache (discovery, ingest, a11y, presets, …)
+- **Server hardening:** SSRF block on job-fetch (private/metadata hosts), no client stack traces, body size cap
+- **Import backup** in Settings (export was already there; restore merges data and keeps local API key)
+- **Restored missing `jobCardHtml` / `bindJobCards`** (critical board regression) + score rings, match chips, shortlist ★
+- **Hunt results ribbon** after discover/refresh; job list pagination (40/page); debounced filter
+- **Visual:** SVG mark, score rings, pipeline status hairlines, card hover lift, subtle noise, tighter heading tracking
+- **Microcopy** aligned to Hunt-from-resume primary path
+- **Unit tests:** `npm test` / `node --test tests/unit.test.js` for match, links, filters, parseModelJson
+
 ## 1.8.0 — 2026-07-29
 
 ### ATS generator page + leaner UI

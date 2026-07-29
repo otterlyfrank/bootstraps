@@ -96,6 +96,24 @@ Then install from the browser as above.
 
 Plain `python -m http.server` serves UI only (no discovery APIs).
 
+### Power features (v1.10)
+
+| Feature | How |
+|---------|-----|
+| **Command palette** | `⌘K` / `Ctrl+K` or topbar **⌘K** |
+| **Session mode** | `S` or topbar **Session** — dim chrome, prepare goal HUD |
+| **Climb timeline** | Home — 8-week sparklines + Working resume evolution |
+| **Application pack** | ATS / Prepare → **Application pack** (print / Save PDF) |
+| **Hunt progress** | Per-board counts + scoring bar while discovering |
+
+### Security (local bridge)
+
+The job-fetch API is an intentional **open URL fetcher for your machine**. It binds to **`127.0.0.1` by default** and blocks private/metadata addresses (SSRF guard). **Do not** run with `--host 0.0.0.0` or put this behind a public URL without auth — anyone who can hit the port could use it as a proxy.
+
+### Backup & restore
+
+**Settings → Export JSON** downloads jobs, applications, resumes, profile, and settings (API key redacted). **Import JSON** restores into this browser and keeps your current Grok key when the file has a redacted key.
+
 ---
 
 ## Resume upload (PDF)

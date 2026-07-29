@@ -430,6 +430,7 @@ export async function exportAllData() {
   ]);
   return {
     exportedAt: new Date().toISOString(),
+    version: 1,
     app: 'bootstraps',
     settings: { ...settings, llmApiKey: settings.llmApiKey ? '[redacted]' : '' },
     profile,
@@ -438,6 +439,97 @@ export async function exportAllData() {
     jobs,
     applications,
     usage,
+  };
+}
+
+/**
+ * Clear all rows in a store.
+ * @param {string} storeName
+ */
+async function clearStore(storeName) {
+  const t = await tx([storeName], 'readwrite');
+  await reqP(t.objectStore(storeName).clear());
+}
+
+/**
+ * Restore a Bootstraps export into IndexedDB.
+ * @param {object} payload
+ * @param {{ keepApiKey?: boolean, replaceJobs?: boolean, replaceApplications?: boolean }} opts
+ * @returns {Promise<{ jobs: number, applications: number, history: number }>}
+ */
+export async function importAllData(payload, opts = {}) {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Invalid import: not a JSON object');
+  }
+  if (payload.app && payload.app !== 'bootstraps') {
+    throw new Error(`Not a Bootstraps export (app: ${payload.app})`);
+  }
+
+  const keepApiKey = opts.keepApiKey !== false;
+  const replaceJobs = opts.replaceJobs !== false;
+  const replaceApplications = opts.replaceApplications !== false;
+
+  const current = await getSettings();
+
+  // Settings — merge, never wipe with redacted key
+  if (payload.settings && typeof payload.settings === 'object') {
+    const next = { ...payload.settings };
+    delete next.key;
+    const importedKey = next.llmApiKey;
+    if (!importedKey || importedKey === '[redacted]' || importedKey === '***') {
+      next.llmApiKey = keepApiKey ? current.llmApiKey || '' : '';
+    }
+    await setSettings(next);
+  }
+
+  if (payload.profile && typeof payload.profile === 'object') {
+    await setProfile(payload.profile);
+  }
+
+  const resumes = payload.resumes || {};
+  if (resumes.master?.body != null || resumes.master?.title != null) {
+    await saveResume('master', resumes.master.body || '', resumes.master.title || 'Master Resume');
+  }
+  if (resumes.working?.body != null || resumes.working?.title != null) {
+    await saveResume('working', resumes.working.body || '', resumes.working.title || 'Working Resume');
+  }
+
+  if (Array.isArray(payload.resumeHistory)) {
+    await clearStore('resumeHistory');
+    for (const h of payload.resumeHistory) {
+      if (!h || typeof h !== 'object') continue;
+      await addResumeHistory({
+        ...h,
+        id: h.id || uuid(),
+        createdAt: h.createdAt || Date.now(),
+      });
+    }
+  }
+
+  let jobsN = 0;
+  if (Array.isArray(payload.jobs)) {
+    if (replaceJobs) await clearStore('jobs');
+    for (const j of payload.jobs) {
+      if (!j || typeof j !== 'object') continue;
+      await putJob({ ...j, id: j.id || uuid() });
+      jobsN++;
+    }
+  }
+
+  let appsN = 0;
+  if (Array.isArray(payload.applications)) {
+    if (replaceApplications) await clearStore('applications');
+    for (const a of payload.applications) {
+      if (!a || typeof a !== 'object') continue;
+      await putApplication({ ...a, id: a.id || uuid() });
+      appsN++;
+    }
+  }
+
+  return {
+    jobs: jobsN,
+    applications: appsN,
+    history: Array.isArray(payload.resumeHistory) ? payload.resumeHistory.length : 0,
   };
 }
 

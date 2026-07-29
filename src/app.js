@@ -28,6 +28,7 @@ import {
   deleteApplication,
   getUsageSummary,
   exportAllData,
+  importAllData,
 } from './storage/db.js';
 import {
   syncRemotive,
@@ -79,6 +80,25 @@ import {
   importPresetsJson,
 } from './lib/hunt-presets.js';
 import { wizardSteps, wizardComplete } from './lib/onboarding-wizard.js';
+import { trapFocus, wireDialog, prefersReducedMotion } from './lib/a11y.js';
+import { $, esc, toast } from './ui/dom.js';
+import {
+  scoreBreakdownHtml,
+  scoreRingHtml,
+  matchChipsHtml,
+} from './ui/score-ui.js';
+import { jobCardHtml, bindJobCards as bindJobCardsUi } from './ui/job-cards.js';
+import { climbTimelineHtml } from './ui/climb-timeline.js';
+import { openCommandPalette, buildBootstrapsCommands } from './ui/command-palette.js';
+import { openPrintablePack, applicationPackMarkdown } from './ui/print-pack.js';
+import { renderDiscoverProgress, clearDiscoverProgress } from './ui/discover-progress.js';
+import {
+  restoreSessionMode,
+  toggleSessionMode,
+  isSessionMode,
+  sessionHudHtml,
+  setSessionMode,
+} from './ui/session-mode.js';
 
 /** @type {any} */
 let state = {
@@ -101,16 +121,36 @@ let state = {
   busy: false,
   /** job id for detail drawer */
   drawerJobId: null,
+  /** Last hunt summary for results ribbon */
+  lastHuntResult: null,
+  /** Mobile "More" sheet open */
+  mobileMoreOpen: false,
+  /** Job list page (0-based) for pagination */
+  jobPage: 0,
+  /** Session mode prepare counter (local, resets daily via date key) */
+  sessionPrepared: 0,
+  sessionPreparedDay: '',
 };
 
+const JOBS_PER_PAGE = 40;
+
 let rootEl = null;
+/** True after first shell build — content-only re-renders after that */
+let shellBuilt = false;
+/** Active dialog focus-release */
+let activeDialogRelease = null;
 
 export async function mountApp(root) {
   rootEl = root;
   await reloadAll();
+  restoreSessionMode();
+  restoreSessionPrepared();
   render();
   // Re-render when browser becomes installable / after install
   window.addEventListener('bootstraps-pwa-change', () => {
+    if (rootEl) render();
+  });
+  window.addEventListener('bootstraps-session-change', () => {
     if (rootEl) render();
   });
   window.addEventListener('keydown', onGlobalKeydown);
@@ -119,43 +159,124 @@ export async function mountApp(root) {
   }
 }
 
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function restoreSessionPrepared() {
+  try {
+    const raw = localStorage.getItem('bootstraps-session-prep');
+    if (!raw) return;
+    const o = JSON.parse(raw);
+    if (o.day === todayKey()) {
+      state.sessionPrepared = Number(o.n) || 0;
+      state.sessionPreparedDay = o.day;
+    }
+  } catch {
+    /* */
+  }
+}
+
+function bumpSessionPrepared() {
+  const day = todayKey();
+  if (state.sessionPreparedDay !== day) {
+    state.sessionPreparedDay = day;
+    state.sessionPrepared = 0;
+  }
+  state.sessionPrepared += 1;
+  try {
+    localStorage.setItem(
+      'bootstraps-session-prep',
+      JSON.stringify({ day, n: state.sessionPrepared })
+    );
+  } catch {
+    /* */
+  }
+}
+
+function goView(view) {
+  state.view = view;
+  state.mobileMoreOpen = false;
+  render();
+}
+
+function openPalette() {
+  openCommandPalette(
+    buildBootstrapsCommands({
+      go: (v) => goView(v),
+      hunt: () => {
+        goView('jobs');
+        requestAnimationFrame(() => $('#disc-hunt')?.click() || $('#j-discover')?.click());
+      },
+      upload: () => {
+        goView('resumes');
+        requestAnimationFrame(() => $('#resume-file')?.click());
+      },
+      refreshHunt: () => refreshLastHunt(),
+      toggleSession: () => {
+        const on = toggleSessionMode();
+        toast(on ? 'Session mode on — focus the hunt' : 'Session mode off', 'ok');
+        render();
+      },
+      exportData: async () => {
+        const data = await exportAllData();
+        downloadJson('bootstraps-export.json', data);
+        toast('Exported full backup', 'ok');
+      },
+      sample: async () => {
+        await loadSamplePack();
+        await reloadAll();
+        toast('Sample loaded', 'ok');
+        render();
+      },
+    })
+  );
+}
+
 function onGlobalKeydown(e) {
+  // Command palette — works even from inputs if meta/ctrl
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    openPalette();
+    return;
+  }
   const tag = (e.target && e.target.tagName) || '';
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
+  // Don't steal keys while a modal/drawer is open
+  if (document.querySelector('.modal-backdrop, .drawer-backdrop, .mobile-more-sheet.open')) return;
   const k = e.key.toLowerCase();
   if (k === 't') {
     e.preventDefault();
-    state.view = 'ats';
-    render();
+    goView('ats');
   } else if (k === 'h') {
     e.preventDefault();
-    state.view = 'jobs';
-    render();
+    goView('jobs');
     requestAnimationFrame(() => $('#disc-hunt')?.click() || $('#j-discover')?.click());
   } else if (k === 'u') {
     e.preventDefault();
-    state.view = 'resumes';
-    render();
+    goView('resumes');
     requestAnimationFrame(() => $('#resume-file')?.click());
   } else if (k === 'j') {
     e.preventDefault();
-    state.view = 'jobs';
-    render();
+    goView('jobs');
   } else if (k === 'a') {
     e.preventDefault();
-    state.view = 'applications';
-    render();
+    goView('applications');
   } else if (k === 'd') {
     e.preventDefault();
-    state.view = 'dashboard';
-    render();
+    goView('dashboard');
   } else if (k === 'r' && state.settings?.lastHunt) {
     e.preventDefault();
     refreshLastHunt();
+  } else if (k === 's') {
+    e.preventDefault();
+    const on = toggleSessionMode();
+    toast(on ? 'Session mode on' : 'Session mode off', 'ok');
+    render();
   } else if (k === '?' || k === '/') {
     e.preventDefault();
-    toast('Keys: H hunt · T ATS · U upload · J jobs · A pipeline · D home · R refresh', 'ok');
+    toast('⌘K palette · H hunt · T ATS · U upload · J jobs · A pipeline · D home · S session · R refresh', 'ok');
   }
 }
 
@@ -178,37 +299,6 @@ async function reloadAll() {
 
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : 'dark');
-}
-
-function $(sel, r = document) {
-  return r.querySelector(sel);
-}
-
-function esc(s) {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function toast(msg, kind = '') {
-  let host = $('#toast-host');
-  if (!host) {
-    host = document.createElement('div');
-    host.id = 'toast-host';
-    host.className = 'toast-host';
-    document.body.appendChild(host);
-  }
-  const el = document.createElement('div');
-  el.className = `toast ${kind}`;
-  el.textContent = msg;
-  host.appendChild(el);
-  setTimeout(() => {
-    el.style.opacity = '0';
-    el.style.transition = 'opacity 0.3s';
-    setTimeout(() => el.remove(), 300);
-  }, 3400);
 }
 
 function resumeBody() {
@@ -287,9 +377,20 @@ async function refreshLastHunt() {
     });
     await saveLastHunt(r.plan || h);
     await reloadAll();
+    const floor = h.minScore ?? 35;
+    const top = (r.allScored || r.jobs || []).filter((j) => (j.score || 0) >= floor).length;
+    state.lastHuntResult = {
+      total: r.total || 0,
+      added: r.added || 0,
+      updated: r.updated || 0,
+      aboveFloor: top,
+      queries: r.queries || h.queries || [],
+      at: Date.now(),
+    };
     toast(`Refresh: +${r.added} · ${r.updated} updated · ${r.total} pulled`, r.total ? 'ok' : 'err');
     state.view = 'jobs';
     state.jobShelf = 'worth';
+    state.jobPage = 0;
     render();
   } catch (err) {
     toast(err.message || String(err), 'err');
@@ -324,19 +425,19 @@ function onboardingSteps() {
     },
     {
       id: 'jobs',
-      label: 'Paste job links, fetch Remotive, or load sample jobs',
+      label: 'Run Hunt from resume (or paste links)',
       done: hasJobs,
       view: 'jobs',
     },
     {
       id: 'apply',
-      label: 'Log your first application (JD is saved automatically)',
-      done: hasApps,
-      view: hasJobs ? 'digest' : 'jobs',
+      label: 'Shortlist or log your first application',
+      done: hasApps || state.jobs.some((j) => j.shortlisted),
+      view: hasJobs ? 'jobs' : 'jobs',
     },
     {
       id: 'api',
-      label: 'Optional: add Grok API key for Prepare & deep analysis',
+      label: 'Optional: Grok API key for polish & domain analysis',
       done: hasApi,
       view: 'settings',
       optional: true,
@@ -348,39 +449,149 @@ function onboardingSteps() {
   return { steps, doneRequired, totalRequired: required.length, complete };
 }
 
-function scoreBreakdownHtml(j) {
-  const b = j.scoreBreakdown;
-  if (!b) return '';
-  const row = (label, v) => {
-    const pct = Math.round(clamp01(v) * 100);
-    return `<div class="score-bar-row" title="${esc(label)}: ${pct}%">
-      <span>${esc(label)}</span>
-      <div class="score-bar"><i style="width:${pct}%"></i></div>
-      <span class="score-bar-n">${pct}</span>
-    </div>`;
-  };
-  return `<div class="score-breakdown">
-    ${row('Skills', b.skillOverlap)}
-    ${row('Keywords', b.keywordOverlap)}
-    ${row('Domain', b.domainBoost)}
-    ${row('Salary', b.salaryFit)}
-    ${row('Remote', b.remoteFit)}
-    ${b.penalty ? `<div class="score-bar-row dim"><span>Penalties</span><span class="score-bar-n">−${Math.round(clamp01(b.penalty) * 100)}</span></div>` : ''}
+function huntResultsRibbonHtml() {
+  const r = state.lastHuntResult;
+  if (!r) return '';
+  return `<div class="hunt-ribbon" role="status">
+    <div class="hunt-ribbon-nums">
+      <span><strong class="count-up" data-n="${r.total || 0}">${r.total || 0}</strong> pulled</span>
+      <span><strong>${r.added || 0}</strong> new</span>
+      <span><strong>${r.aboveFloor || 0}</strong> ≥ floor</span>
+      <span><strong>${r.updated || 0}</strong> updated</span>
+    </div>
+    <p class="dim hunt-ribbon-q">${esc((r.queries || []).slice(0, 4).join(' · ') || 'Hunt complete')}</p>
+    <button type="button" class="btn ghost" id="ribbon-dismiss" aria-label="Dismiss hunt results">Dismiss</button>
   </div>`;
 }
 
-function clamp01(n) {
-  return Math.max(0, Math.min(1, Number(n) || 0));
+function wireHuntRibbon(root) {
+  $('#ribbon-dismiss', root)?.addEventListener('click', () => {
+    state.lastHuntResult = null;
+    render();
+  });
 }
 
 // ── Shell ──────────────────────────────────────────────────
 
-function render() {
+function moreNavIds() {
+  return ['resumes', 'settings', 'digest', 'domains', 'profile'];
+}
+
+function navBtn(id, label, extraClass = '') {
+  const active = state.view === id;
+  const cur = active ? ' aria-current="page"' : '';
+  return `<button type="button" class="nav-btn ${active ? 'active' : ''} ${extraClass}" data-nav="${id}"${cur}>${label}</button>`;
+}
+
+function mobileNavHtml() {
+  const item = (id, label, icon) => {
+    const active =
+      state.view === id ||
+      (id === 'more' && moreNavIds().includes(state.view));
+    return `<button type="button" class="mobile-nav-btn ${active ? 'active' : ''}" data-nav="${id}" ${
+      active && id !== 'more' ? 'aria-current="page"' : ''
+    }>
+      <span class="mobile-nav-icon" aria-hidden="true">${icon}</span>
+      <span>${label}</span>
+    </button>`;
+  };
+  return `
+    <nav class="mobile-nav" aria-label="Primary">
+      ${item('dashboard', 'Home', '⌂')}
+      ${item('jobs', 'Hunt', '◎')}
+      ${item('ats', 'ATS', '✎')}
+      ${item('applications', 'Pipeline', '▤')}
+      ${item('more', 'More', '⋯')}
+    </nav>
+    <div class="mobile-more-sheet ${state.mobileMoreOpen ? 'open' : ''}" id="mobile-more-sheet" ${
+      state.mobileMoreOpen ? '' : 'hidden'
+    }>
+      <div class="mobile-more-panel" role="dialog" aria-label="More navigation">
+        <p class="mobile-more-title">More</p>
+        ${navBtn('resumes', 'Resumes')}
+        ${navBtn('settings', 'Settings')}
+        ${navBtn('digest', 'Recommended')}
+        ${navBtn('domains', 'Domain intel')}
+        ${navBtn('profile', 'Profile')}
+        <button type="button" class="btn ghost" id="mobile-more-close">Close</button>
+      </div>
+    </div>`;
+}
+
+function wireNavHandlers(scope = rootEl) {
+  if (!scope) return;
+  scope.querySelectorAll('[data-nav]').forEach((btn) => {
+    btn.onclick = async () => {
+      const id = btn.dataset.nav;
+      if (id === 'more') {
+        state.mobileMoreOpen = !state.mobileMoreOpen;
+        render();
+        return;
+      }
+      state.mobileMoreOpen = false;
+      state.view = id;
+      state.jobPage = 0;
+      await reloadAll();
+      render();
+      if (state.view === 'settings') {
+        requestAnimationFrame(() =>
+          $('#support')?.scrollIntoView({
+            behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+          })
+        );
+      }
+    };
+  });
+  $('#mobile-more-close', scope)?.addEventListener('click', () => {
+    state.mobileMoreOpen = false;
+    render();
+  });
+  $('#mobile-more-sheet', scope)?.addEventListener('click', (e) => {
+    if (e.target.id === 'mobile-more-sheet') {
+      state.mobileMoreOpen = false;
+      render();
+    }
+  });
+}
+
+function updateShellChrome() {
   if (!rootEl) return;
+  const title = $('#topbar-title', rootEl);
+  if (title) title.textContent = viewTitle();
+  const usage = $('#shell-usage', rootEl);
+  if (usage) {
+    usage.textContent = `AI ~${formatUsd(state.usage.estCostUsd)} · ${state.usage.totalTokens || 0} tok`;
+  }
+  const sessBtn = $('#shell-session', rootEl);
+  if (sessBtn) sessBtn.textContent = isSessionMode() ? 'Exit session' : 'Session';
+  // Re-sync active nav states without full shell rebuild
+  rootEl.querySelectorAll('[data-nav]').forEach((btn) => {
+    const id = btn.dataset.nav;
+    if (id === 'more') {
+      const on = moreNavIds().includes(state.view) || state.mobileMoreOpen;
+      btn.classList.toggle('active', on);
+      return;
+    }
+    const active = state.view === id;
+    btn.classList.toggle('active', active);
+    if (active) btn.setAttribute('aria-current', 'page');
+    else btn.removeAttribute('aria-current');
+  });
+  const sheet = $('#mobile-more-sheet', rootEl);
+  if (sheet) {
+    sheet.hidden = !state.mobileMoreOpen;
+    sheet.classList.toggle('open', state.mobileMoreOpen);
+  }
+  const pwaSlot = $('.pwa-side-slot', rootEl);
+  if (pwaSlot) pwaSlot.innerHTML = installUiHtml('compact');
+}
+
+function buildShell() {
   rootEl.innerHTML = `
-    <aside class="sidebar">
+    <a class="skip-link" href="#view-root">Skip to content</a>
+    <aside class="sidebar" aria-label="Sidebar">
       <div class="brand">
-        <img class="brand-logo" src="./public/bootstraps-logo.jpg" alt="" width="52" height="52" />
+        <img class="brand-logo" src="./public/bootstraps-mark.svg" alt="" width="52" height="52" />
         <div>
           <h1>${APP_NAME}</h1>
           <p>Hunt · ATS · climb</p>
@@ -392,7 +603,7 @@ function render() {
       ${navBtn('applications', 'Pipeline')}
       ${navBtn('resumes', 'Resumes')}
       ${navBtn('settings', 'Settings')}
-      <details class="nav-more ${['digest','domains','profile'].includes(state.view) ? 'open' : ''}">
+      <details class="nav-more ${moreNavIds().filter((id) => !['resumes', 'settings'].includes(id)).includes(state.view) ? 'open' : ''}">
         <summary class="nav-more-sum">More</summary>
         ${navBtn('digest', 'Recommended')}
         ${navBtn('domains', 'Domain intel')}
@@ -400,7 +611,7 @@ function render() {
       </details>
       <div class="sidebar-foot">
         <p>Local-first · optional Grok</p>
-        <p class="usage-chip" style="display:inline-block;margin-top:0.35rem">
+        <p class="usage-chip" id="shell-usage" style="display:inline-block;margin-top:0.35rem">
           AI ~${formatUsd(state.usage.estCostUsd)} · ${state.usage.totalTokens || 0} tok
         </p>
         <div class="pwa-side-slot" style="margin-top:0.65rem">
@@ -413,24 +624,50 @@ function render() {
     </aside>
     <div class="main">
       <header class="topbar">
-        <h2>${esc(viewTitle())}</h2>
-        <div class="topbar-actions" id="top-actions"></div>
+        <h2 id="topbar-title">${esc(viewTitle())}</h2>
+        <div class="topbar-actions-wrap">
+          <button type="button" class="btn ghost" id="shell-palette" title="Command palette (⌘K)">⌘K</button>
+          <button type="button" class="btn ghost" id="shell-session" title="Session mode (S)">${
+            isSessionMode() ? 'Exit session' : 'Session'
+          }</button>
+          <div class="topbar-actions" id="top-actions"></div>
+        </div>
       </header>
-      <div class="content" id="view-root"></div>
+      <div class="content" id="view-root" tabindex="-1"></div>
     </div>
+    ${mobileNavHtml()}
   `;
-  rootEl.querySelectorAll('[data-nav]').forEach((btn) => {
-    btn.onclick = async () => {
-      state.view = btn.dataset.nav;
-      await reloadAll();
-      render();
-      if (state.view === 'settings') {
-        requestAnimationFrame(() => $('#support')?.scrollIntoView({ behavior: 'smooth' }));
-      }
-    };
+  wireNavHandlers(rootEl);
+  $('#shell-palette', rootEl)?.addEventListener('click', () => openPalette());
+  $('#shell-session', rootEl)?.addEventListener('click', () => {
+    const on = toggleSessionMode();
+    toast(on ? 'Session mode on' : 'Session mode off', 'ok');
+    render({ forceShell: true });
   });
+  shellBuilt = true;
+}
+
+function render(opts = {}) {
+  if (!rootEl) return;
+  if (!shellBuilt || opts.forceShell) {
+    buildShell();
+  } else {
+    updateShellChrome();
+    // Rebuild mobile more sheet content if structure drifted
+    const sheet = $('#mobile-more-sheet', rootEl);
+    if (sheet && state.mobileMoreOpen) {
+      sheet.hidden = false;
+      sheet.classList.add('open');
+    }
+  }
   const root = $('#view-root');
   const actions = $('#top-actions');
+  if (!root || !actions) {
+    buildShell();
+    return render({ forceShell: true });
+  }
+  actions.innerHTML = '';
+  root.innerHTML = '';
   const map = {
     dashboard: renderDashboard,
     digest: renderDigest,
@@ -444,6 +681,41 @@ function render() {
   };
   (map[state.view] || renderDashboard)(root, actions);
   wireInstallButtons(rootEl);
+  // Ensure nav still wired after shell rebuild
+  if (opts.forceShell) wireNavHandlers(rootEl);
+  wireSessionHud();
+}
+
+function wireSessionHud() {
+  let hud = document.getElementById('session-hud-host');
+  if (!isSessionMode()) {
+    hud?.remove();
+    return;
+  }
+  if (!hud) {
+    hud = document.createElement('div');
+    hud.id = 'session-hud-host';
+    document.body.appendChild(hud);
+  }
+  const worth = visibleJobs('worth').length;
+  hud.innerHTML = sessionHudHtml({
+    prepareTarget: 5,
+    preparedToday: state.sessionPrepared || 0,
+    worthCount: worth,
+  });
+  $('#session-exit', hud)?.addEventListener('click', () => {
+    setSessionMode(false);
+    toast('Session mode off', 'ok');
+    render();
+  });
+  $('#session-hunt', hud)?.addEventListener('click', () => {
+    goView('jobs');
+    requestAnimationFrame(() => $('#disc-hunt')?.click() || $('#j-discover')?.click());
+  });
+  $('#session-worth', hud)?.addEventListener('click', () => {
+    state.jobShelf = 'worth';
+    goView('jobs');
+  });
 }
 
 function supportBlock() {
@@ -461,10 +733,6 @@ function supportBlock() {
       </div>
       <p class="dim" style="margin:0.75rem 0 0;font-size:0.82rem">Even a one-time coffee after an offer means a lot.</p>
     </div>`;
-}
-
-function navBtn(id, label) {
-  return `<button type="button" class="nav-btn ${state.view === id ? 'active' : ''}" data-nav="${id}">${label}</button>`;
 }
 
 function viewTitle() {
@@ -494,26 +762,34 @@ function openOnboardingWizard() {
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   backdrop.id = 'wiz-backdrop';
+  let release = null;
+  const closeWizard = () => {
+    release?.();
+    release = null;
+    backdrop.remove();
+  };
   const paint = () => {
     const s = steps[step];
     const doneN = steps.filter((x) => x.done).length;
+    release?.();
     backdrop.innerHTML = `
-      <div class="modal wizard-modal">
+      <div class="modal wizard-modal" role="dialog" aria-modal="true" aria-labelledby="wiz-title">
         <p class="dim" style="margin:0 0 0.35rem">Setup ${step + 1}/${steps.length} · ${doneN} complete</p>
-        <div class="onboard-progress"><i style="width:${Math.round(((step + 1) / steps.length) * 100)}%"></i></div>
-        <h2 style="margin:0.75rem 0 0.35rem">${esc(s.title)}</h2>
+        <div class="onboard-progress" aria-hidden="true"><i style="width:${Math.round(((step + 1) / steps.length) * 100)}%"></i></div>
+        <h2 id="wiz-title" style="margin:0.75rem 0 0.35rem">${esc(s.title)}</h2>
         <p class="muted">${esc(s.body)}</p>
         <p class="dim">${s.done ? '✓ This step looks done.' : 'Not done yet — use the button below.'}</p>
         <div class="modal-actions" style="margin-top:1rem">
           <button type="button" class="btn ghost" id="wiz-skip">Skip for now</button>
           ${step > 0 ? '<button type="button" class="btn" id="wiz-back">Back</button>' : ''}
-          <button type="button" class="btn primary" id="wiz-cta">${esc(s.cta)}</button>
+          <button type="button" class="btn primary" id="wiz-cta" data-autofocus>${esc(s.cta)}</button>
           <button type="button" class="btn" id="wiz-next">${step >= steps.length - 1 ? 'Finish' : 'Next'}</button>
         </div>
       </div>`;
+    release = trapFocus(backdrop, { onEscape: closeWizard });
     $('#wiz-skip', backdrop).onclick = async () => {
       state.settings = await setSettings({ onboardingDone: true });
-      backdrop.remove();
+      closeWizard();
     };
     $('#wiz-back', backdrop)?.addEventListener('click', () => {
       step = Math.max(0, step - 1);
@@ -522,7 +798,7 @@ function openOnboardingWizard() {
     $('#wiz-next', backdrop).onclick = async () => {
       if (step >= steps.length - 1) {
         state.settings = await setSettings({ onboardingDone: true });
-        backdrop.remove();
+        closeWizard();
         toast('Setup complete — daily loop is on the dashboard', 'ok');
         state.view = 'dashboard';
         render();
@@ -532,7 +808,7 @@ function openOnboardingWizard() {
       paint();
     };
     $('#wiz-cta', backdrop).onclick = async () => {
-      backdrop.remove();
+      closeWizard();
       state.view = s.view;
       render();
       if (s.action === 'upload') {
@@ -575,28 +851,28 @@ function renderDashboard(root, actions) {
   if (!onboard.complete && !hasJobs) {
     root.innerHTML = `
       <section class="hero">
-        <img class="hero-logo" src="./public/bootstraps-logo.jpg" alt="" />
+        <img class="hero-logo" src="./public/bootstraps-mark.svg" alt="Bootstraps" />
         <div class="hero-copy">
           <p class="hero-kicker">${esc(APP_NAME)}</p>
           <h2 class="hero-tagline">${esc(APP_TAGLINE)}</h2>
-          <p class="hero-sub muted">Three steps. Then the daily loop takes over.</p>
+          <p class="hero-sub muted">Upload → Hunt from resume → shortlist → prepare. The daily loop takes over after that.</p>
         </div>
       </section>
       <div class="first-run-grid">
-        <button type="button" class="first-run-card" id="fr-api">
-          <span class="fr-n">1</span>
-          <strong>Connect Grok</strong>
-          <span class="dim">API key for resume + prep assist ${hasKey ? '✓' : ''}</span>
-        </button>
         <button type="button" class="first-run-card" id="fr-resume">
-          <span class="fr-n">2</span>
+          <span class="fr-n">1</span>
           <strong>Upload resume</strong>
           <span class="dim">PDF → Master, Working, Profile ${hasResume ? '✓' : ''}</span>
         </button>
         <button type="button" class="first-run-card" id="fr-hunt">
-          <span class="fr-n">3</span>
+          <span class="fr-n">2</span>
           <strong>Hunt from resume</strong>
           <span class="dim">Public boards scored to you ${hasJobs ? '✓' : ''}</span>
+        </button>
+        <button type="button" class="first-run-card" id="fr-api">
+          <span class="fr-n">3</span>
+          <strong>Connect Grok</strong>
+          <span class="dim">Optional polish + domain analysis ${hasKey ? '✓' : ''}</span>
         </button>
       </div>
       <p class="dim" style="margin-top:1rem">
@@ -634,13 +910,14 @@ function renderDashboard(root, actions) {
 
   root.innerHTML = `
     <section class="hero compact-hero">
-      <img class="hero-logo" src="./public/bootstraps-logo.jpg" alt="" />
+      <img class="hero-logo" src="./public/bootstraps-mark.svg" alt="" />
       <div class="hero-copy">
         <p class="hero-kicker">Daily loop</p>
         <h2 class="hero-tagline">Hunt · shortlist · prepare · follow up</h2>
         <p class="hero-sub muted">Score floor ${state.settings?.minJobScore ?? 35} · shortlist ${shortlistCount()} · overdue ${overdue.length}</p>
       </div>
     </section>
+    ${huntResultsRibbonHtml()}
 
     <div class="daily-loop">
       <div class="loop-step ${hasResume ? 'done' : ''}">
@@ -751,8 +1028,9 @@ function renderDashboard(root, actions) {
         · Flagged domains ${flagged.length}
         · Jobs in library ${state.jobs.length}
       </p>
-      <p class="dim" style="margin:0.4rem 0 0">Keys: <kbd>H</kbd> hunt · <kbd>U</kbd> upload · <kbd>J</kbd> jobs · <kbd>A</kbd> apps · <kbd>D</kbd> home · <kbd>R</kbd> refresh hunt · <kbd>?</kbd> help</p>
+      <p class="dim" style="margin:0.4rem 0 0">Keys: <kbd>⌘K</kbd> palette · <kbd>H</kbd> hunt · <kbd>S</kbd> session · <kbd>T</kbd> ATS · <kbd>?</kbd> help</p>
     </div>
+    ${climbTimelineHtml(state.applications, state.history)}
     ${supportBlock()}
   `;
 
@@ -790,6 +1068,7 @@ function renderDashboard(root, actions) {
       requestAnimationFrame(() => openAppEditor(btn.dataset.openApp));
     };
   });
+  wireHuntRibbon(root);
   bindJobCards(root);
 }
 
@@ -840,6 +1119,13 @@ function renderJobs(root, actions) {
     </div>
   `;
   let jobs = visibleJobs(state.jobShelf);
+  const totalJobs = jobs.length;
+  const totalPages = Math.max(1, Math.ceil(totalJobs / JOBS_PER_PAGE));
+  if (state.jobPage >= totalPages) state.jobPage = Math.max(0, totalPages - 1);
+  const pageJobs = jobs.slice(
+    state.jobPage * JOBS_PER_PAGE,
+    state.jobPage * JOBS_PER_PAGE + JOBS_PER_PAGE
+  );
   const shelfBtn = (id, label, count) =>
     `<button type="button" class="btn ${state.jobShelf === id ? 'primary' : ''}" data-shelf="${id}">${label}${count != null ? ` (${count})` : ''}</button>`;
   const worthN = visibleJobs('worth').length;
@@ -851,6 +1137,7 @@ function renderJobs(root, actions) {
   }).length;
 
   root.innerHTML = `
+    ${huntResultsRibbonHtml()}
     <div id="discovery-panel" class="discovery-panel"></div>
     <div class="filter-row job-filter-bar">
       ${shelfBtn('worth', 'Worth applying', worthN)}
@@ -866,33 +1153,54 @@ function renderJobs(root, actions) {
         <input type="checkbox" id="job-hard" ${state.settings?.hardScoreFilter ? 'checked' : ''} /> Hard score filter
       </label>
       <input class="search" id="job-q" placeholder="Filter…" value="${esc(state.jobQ)}" />
-      <span class="dim">${jobs.length} shown</span>
+      <span class="dim">${totalJobs} shown${totalJobs > JOBS_PER_PAGE ? ` · page ${state.jobPage + 1}/${totalPages}` : ''}</span>
     </div>
     <div class="job-list">
       ${
-        jobs.length
-          ? jobs.map((j) => jobCardHtml(j)).join('')
+        pageJobs.length
+          ? pageJobs.map((j) => jobCardHtml(j)).join('')
           : `<div class="empty"><h3>Nothing on this shelf</h3>
              <p>${
                state.jobShelf === 'shortlist'
                  ? 'Star jobs with ☆ to shortlist them.'
                  : state.jobShelf === 'worth'
                    ? 'No unapplied roles above the score floor. Run <strong>Hunt from resume</strong>, lower min score, or open <strong>All scored</strong>.'
-                   : 'Run Hunt or paste links to populate the board.'
+                   : 'Run <strong>Hunt from resume</strong> or paste links to populate the board.'
              }</p></div>`
       }
     </div>
+    ${
+      totalPages > 1
+        ? `<div class="pager row-actions" style="margin-top:0.75rem">
+            <button type="button" class="btn" id="job-prev" ${state.jobPage <= 0 ? 'disabled' : ''}>Previous</button>
+            <span class="dim">Page ${state.jobPage + 1} of ${totalPages}</span>
+            <button type="button" class="btn" id="job-next" ${state.jobPage >= totalPages - 1 ? 'disabled' : ''}>Next</button>
+          </div>`
+        : ''
+    }
     <div id="job-drawer-host"></div>
   `;
   mountDiscoveryPanel($('#discovery-panel'));
   if (state.drawerJobId) openJobDrawer(state.drawerJobId, { skipRender: true, host: $('#job-drawer-host') });
+  wireHuntRibbon(root);
 
+  $('#job-prev')?.addEventListener('click', () => {
+    state.jobPage = Math.max(0, state.jobPage - 1);
+    render();
+  });
+  $('#job-next')?.addEventListener('click', () => {
+    state.jobPage = Math.min(totalPages - 1, state.jobPage + 1);
+    render();
+  });
   $('#j-refresh')?.addEventListener('click', () => refreshLastHunt());
   $('#j-discover').onclick = () => {
     const panel = $('#discovery-panel');
     if (panel) {
       panel.hidden = false;
-      panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      panel.scrollIntoView({
+        behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+        block: 'nearest',
+      });
     }
   };
   $('#j-manual').onclick = () => openManualJob();
@@ -905,31 +1213,63 @@ function renderJobs(root, actions) {
   root.querySelectorAll('[data-shelf]').forEach((btn) => {
     btn.onclick = () => {
       state.jobShelf = btn.dataset.shelf;
+      state.jobPage = 0;
       render();
     };
   });
   $('#job-minscore').onchange = async (e) => {
     state.settings = await setSettings({ minJobScore: Number(e.target.value) || 0 });
+    state.jobPage = 0;
     render();
   };
   $('#job-hidedb').onchange = async (e) => {
     state.settings = await setSettings({ hideDealBreakers: e.target.checked });
+    state.jobPage = 0;
     render();
   };
   $('#job-hard')?.addEventListener('change', async (e) => {
     state.settings = await setSettings({ hardScoreFilter: e.target.checked });
+    state.jobPage = 0;
     render();
+  });
+  let jobQTimer = null;
+  $('#job-q').addEventListener('input', (e) => {
+    clearTimeout(jobQTimer);
+    jobQTimer = setTimeout(() => {
+      state.jobQ = e.target.value.trim();
+      state.jobPage = 0;
+      render();
+    }, 220);
   });
   $('#job-q').addEventListener('keydown', async (e) => {
     if (e.key === 'Enter') {
+      clearTimeout(jobQTimer);
       state.jobQ = e.target.value.trim();
+      state.jobPage = 0;
       render();
     }
   });
   bindJobCards(root);
 }
 
-
+function bindJobCards(root) {
+  bindJobCardsUi(root, {
+    jobs: state.jobs,
+    prepareForJob,
+    logApplyFromJob,
+    openJobDrawer,
+    onDismiss: async (job) => {
+      await putJob({ ...job, dismissed: true });
+      await reloadAll();
+      render();
+    },
+    onStar: async (job) => {
+      await putJob({ ...job, shortlisted: !job.shortlisted });
+      await reloadAll();
+      render();
+    },
+  });
+}
 
 async function mountDiscoveryPanel(host) {
   if (!host) return;
@@ -1042,12 +1382,14 @@ async function mountDiscoveryPanel(host) {
           </div>
         </div>
       </details>
+      <div id="disc-progress-host" hidden></div>
       <p class="dim" id="disc-status" style="margin:0.65rem 0 0"></p>
     </div>
   `;
 
   const selectedSources = () =>
     [...host.querySelectorAll('[data-source]:checked')].map((el) => el.dataset.source);
+  const progressHost = $('#disc-progress-host', host);
 
   $('#disc-hide', host).onclick = () => {
     host.hidden = true;
@@ -1073,6 +1415,11 @@ async function mountDiscoveryPanel(host) {
     if (huntBtn) huntBtn.disabled = true;
     if (customBtn) customBtn.disabled = true;
     status.textContent = mode === 'hunt' ? 'Hunting from resume…' : 'Querying boards…';
+    renderDiscoverProgress(progressHost, {
+      phase: 'fetch',
+      label: mode === 'hunt' ? 'Pulling boards from hunt plan…' : 'Querying selected boards…',
+      sources: selected,
+    });
     try {
       const limit = Number($('#disc-limit', host)?.value) || 50;
       const minScore = Number($('#disc-minscore', host)?.value) || 0;
@@ -1083,19 +1430,55 @@ async function mountDiscoveryPanel(host) {
         .filter(Boolean);
 
       let r;
+      /** @type {Record<string, number>} */
+      let liveCounts = {};
+      /** @type {Record<string, string>} */
+      let liveErrors = {};
+      const onProgress = (done, total, job, meta) => {
+        if (meta?.phase === 'plan') {
+          status.textContent = `Plan: ${(meta.plan?.queries || []).join(' · ')}`;
+          renderDiscoverProgress(progressHost, {
+            phase: 'plan',
+            label: `Plan: ${(meta.plan?.queries || []).join(' · ')}`,
+            sources: selected,
+          });
+          return;
+        }
+        if (meta?.phase === 'boards') {
+          if (meta?.counts) liveCounts = meta.counts;
+          if (meta?.errors) liveErrors = meta.errors;
+          status.textContent = `Boards returned · scoring ${total || 0} roles…`;
+          renderDiscoverProgress(progressHost, {
+            phase: 'boards',
+            label: `Boards returned · ${total || 0} to score`,
+            sources: selected,
+            counts: liveCounts,
+            errors: liveErrors,
+            scored: 0,
+            total: total || 0,
+          });
+          return;
+        }
+        if (meta?.counts) liveCounts = meta.counts;
+        if (meta?.errors) liveErrors = meta.errors;
+        if (job) status.textContent = `Scoring ${done}/${total} — ${job.title || '…'} (${job.score ?? 0})`;
+        renderDiscoverProgress(progressHost, {
+          phase: 'score',
+          label: total ? `Scoring matches ${done}/${total}` : 'Scoring…',
+          sources: selected,
+          counts: liveCounts,
+          errors: liveErrors,
+          scored: done,
+          total: total || 0,
+        });
+      };
       if (mode === 'hunt') {
         r = await huntFromResume(state.profile, resumeBody(), state.settings.domains, {
           sources: selected,
           minScore,
           limit,
           extraQueries: extra,
-          onProgress: (done, total, job, meta) => {
-            if (meta?.phase === 'plan') {
-              status.textContent = `Plan: ${(meta.plan?.queries || []).join(' · ')}`;
-              return;
-            }
-            if (job) status.textContent = `Scoring ${done}/${total} — ${job.title || '…'} (${job.score ?? 0})`;
-          },
+          onProgress,
         });
       } else {
         const queries = extra.length ? extra : plan.queries;
@@ -1104,18 +1487,34 @@ async function mountDiscoveryPanel(host) {
           state.profile,
           resumeBody(),
           state.settings.domains,
-          (done, total, job) => {
-            status.textContent = `Scoring ${done}/${total} — ${job.title || '…'} (${job.score ?? 0})`;
-          }
+          (done, total, job, data) => onProgress(done, total, job, data)
         );
         r.plan = { queries, sources: selected, minScore, limit };
       }
+      renderDiscoverProgress(progressHost, {
+        phase: 'done',
+        label: `Done — ${r.total || 0} pulled · +${r.added || 0} new`,
+        sources: selected,
+        counts: r.counts || {},
+        errors: r.errors || {},
+        scored: r.total || 0,
+        total: r.total || 0,
+      });
 
       await saveLastHunt(r.plan || { queries: r.queries, sources: selected, minScore, limit });
       await reloadAll();
       state.jobShelf = 'worth';
+      state.jobPage = 0;
       const top = (r.allScored || r.jobs || []).filter((j) => (j.score || 0) >= minScore).length;
       const errKeys = Object.keys(r.errors || {});
+      state.lastHuntResult = {
+        total: r.total || 0,
+        added: r.added || 0,
+        updated: r.updated || 0,
+        aboveFloor: top,
+        queries: r.queries || r.plan?.queries || [],
+        at: Date.now(),
+      };
       toast(
         `Hunt: +${r.added} new · ${r.updated} updated · ${r.total} pulled · ${top} ≥ ${minScore}`,
         r.total ? 'ok' : 'err'
@@ -1123,10 +1522,21 @@ async function mountDiscoveryPanel(host) {
       status.textContent = `Queries: ${(r.queries || []).join(' · ')} · ${Object.entries(r.counts || {})
         .map(([k, v]) => k + ':' + v)
         .join(' · ')}${errKeys.length ? ' · issues: ' + errKeys.join(', ') : ''}`;
+      // Source-level progress already in counts/errors
+      if (errKeys.length && !r.total) {
+        status.textContent +=
+          ' — Tip: run ./start.sh (not plain http.server) so /api/discover is available.';
+      }
       render();
     } catch (err) {
-      toast(err.message || String(err), 'err');
-      status.textContent = err.message || String(err);
+      const msg = err.message || String(err);
+      toast(msg, 'err');
+      status.textContent =
+        msg +
+        (/fetch|network|Failed/i.test(msg)
+          ? ' — Is Bootstraps server running? Use ./start.sh on port 8792.'
+          : '');
+      clearDiscoverProgress(progressHost);
     } finally {
       state.busy = false;
       if (huntBtn) huntBtn.disabled = false;
@@ -1134,7 +1544,6 @@ async function mountDiscoveryPanel(host) {
     }
   };
 
-  
   const currentHuntConfig = () => {
     const extra = ($('#disc-search', host)?.value || '')
       .split(/[,;]+/)
@@ -1421,14 +1830,36 @@ https://weworkremotely.com/remote-jobs/…"></textarea>
   };
 }
 
+/** Attach Escape / focus trap / backdrop click to a modal root */
+function attachModal(backdrop, closeFn) {
+  if (activeDialogRelease) {
+    try {
+      activeDialogRelease();
+    } catch {
+      /* */
+    }
+    activeDialogRelease = null;
+  }
+  const close = () => {
+    activeDialogRelease?.();
+    activeDialogRelease = null;
+    closeFn();
+  };
+  activeDialogRelease = wireDialog(backdrop, {
+    dialogSelector: '.modal',
+    close,
+  });
+  return close;
+}
+
 function openManualJob() {
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   backdrop.innerHTML = `
-    <div class="modal">
-      <h2>Add job manually</h2>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-heading">
+      <h2 id="m-heading">Add job manually</h2>
       <p class="muted">For We Work Remotely, company sites, referrals, etc. Or use Bulk import for many at once.</p>
-      <div class="field"><label>Title</label><input id="m-title" /></div>
+      <div class="field"><label>Title</label><input id="m-title" data-autofocus /></div>
       <div class="field"><label>Company</label><input id="m-company" /></div>
       <div class="field"><label>URL</label><input id="m-url" placeholder="https://" /></div>
       <div class="field"><label>Domain</label>
@@ -1442,11 +1873,8 @@ function openManualJob() {
       </div>
     </div>`;
   document.body.appendChild(backdrop);
-  const close = () => backdrop.remove();
+  const close = attachModal(backdrop, () => backdrop.remove());
   $('#m-cancel', backdrop).onclick = close;
-  backdrop.onclick = (e) => {
-    if (e.target === backdrop) close();
-  };
   $('#m-save', backdrop).onclick = async () => {
     const raw = normalizeManual({
       title: $('#m-title', backdrop).value,
@@ -1838,6 +2266,10 @@ function openJobDrawer(jobId, opts = {}) {
     document.body.appendChild(d);
     return d;
   })();
+  if (activeDialogRelease) {
+    activeDialogRelease();
+    activeDialogRelease = null;
+  }
   const br = job.scoreBreakdown || {};
   const dbHits = dealBreakerHits(job, state.profile);
   const why = [];
@@ -1850,15 +2282,16 @@ function openJobDrawer(jobId, opts = {}) {
 
   host.innerHTML = `
     <div class="drawer-backdrop" id="drawer-bg">
-      <aside class="job-drawer" role="dialog" aria-label="Job detail">
+      <aside class="job-drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
         <header class="drawer-head">
           <div>
-            <h2 style="margin:0">${esc(job.title)}</h2>
+            <h2 id="drawer-title" style="margin:0">${esc(job.title)}</h2>
             <p class="dim" style="margin:0.25rem 0 0">${esc(job.company)} · ${esc(job.source)} · score ${job.score ?? 0}</p>
           </div>
-          <button type="button" class="btn ghost" id="drawer-close">Close</button>
+          <button type="button" class="btn ghost" id="drawer-close" data-autofocus>Close</button>
         </header>
         <div class="drawer-body">
+          <div class="drawer-score-row">${scoreRingHtml(job.score || 0)}${matchChipsHtml(job)}</div>
           <p class="muted"><strong>Why this matched</strong></p>
           <ul class="why-list">${why.map((w) => `<li>${esc(w)}</li>`).join('') || '<li class="dim">No breakdown</li>'}</ul>
           ${scoreBreakdownHtml(job)}
@@ -1874,13 +2307,18 @@ function openJobDrawer(jobId, opts = {}) {
       </aside>
     </div>`;
   const close = () => {
+    activeDialogRelease?.();
+    activeDialogRelease = null;
     state.drawerJobId = null;
     host.innerHTML = '';
   };
+  const bg = $('#drawer-bg', host);
+  activeDialogRelease = wireDialog(bg, {
+    dialogSelector: '.job-drawer',
+    close,
+    labelledBy: 'drawer-title',
+  });
   $('#drawer-close', host).onclick = close;
-  $('#drawer-bg', host).onclick = (e) => {
-    if (e.target.id === 'drawer-bg') close();
-  };
   $('#drawer-prep', host).onclick = () => {
     close();
     prepareForJob(job.id);
@@ -1969,7 +2407,14 @@ function renderAts(root, actions) {
         <div class="row-actions" style="flex-wrap:wrap;gap:0.5rem">
           <button type="button" class="btn" id="ats-copy">Copy resume</button>
           <button type="button" class="btn" id="ats-export">Export MD</button>
+          <button type="button" class="btn" id="ats-print" title="Printable paper preview">Application pack</button>
           <button type="button" class="btn primary" id="ats-save">Save to Pipeline</button>
+        </div>
+        <div class="ats-paper-preview" id="ats-paper" hidden>
+          <p class="ats-paper-brand">Bootstraps · application pack</p>
+          <h4 id="ats-paper-title" class="ats-paper-title">—</h4>
+          <p class="dim" id="ats-paper-meta"></p>
+          <div class="ats-paper-body" id="ats-paper-body"></div>
         </div>
       </div>
     </div>
@@ -2034,6 +2479,25 @@ function renderAts(root, actions) {
     }
   };
 
+  const updatePaperPreview = () => {
+    const job = readJob();
+    const resume = $('#ats-resume')?.value || '';
+    const note = $('#ats-note')?.value || '';
+    const paper = $('#ats-paper');
+    if (!paper) return;
+    if (!resume.trim()) {
+      paper.hidden = true;
+      return;
+    }
+    paper.hidden = false;
+    $('#ats-paper-title').textContent = job.title + (job.company ? ` @ ${job.company}` : '');
+    $('#ats-paper-meta').textContent = job.url || 'No listing URL';
+    const body = [];
+    if (note.trim()) body.push('COVER NOTE\n\n' + note.trim(), '\n\n———\n\n');
+    body.push(resume.trim());
+    $('#ats-paper-body').textContent = body.join('');
+  };
+
   const runLocal = () => {
     const job = readJob();
     if (!job.description && !job.url) {
@@ -2048,6 +2512,8 @@ function renderAts(root, actions) {
     $('#ats-resume').value = pack.tailoredResume;
     $('#ats-note').value = $('#ats-cover').checked ? pack.coverNote : '';
     $('#ats-summary').textContent = pack.changesSummary + ' · local (no API)';
+    updatePaperPreview();
+    bumpSessionPrepared();
     toast('Local ATS pack ready', 'ok');
   };
 
@@ -2094,8 +2560,10 @@ function renderAts(root, actions) {
       $('#ats-note').value = includeCover ? parsed.coverNote || '' : '';
       $('#ats-summary').textContent = (parsed.changesSummary || 'ATS resume ready') + ' · via Grok · Master base';
       state.usage = await getUsageSummary();
+      updatePaperPreview();
+      bumpSessionPrepared();
       toast('ATS resume ready', 'ok');
-      status.textContent = 'Done — copy, export, or save to Pipeline.';
+      status.textContent = 'Done — copy, export, print pack, or save to Pipeline.';
     } catch (err) {
       status.textContent = err.message || String(err);
       toast(err.message || String(err), 'err');
@@ -2107,6 +2575,8 @@ function renderAts(root, actions) {
 
   $('#ats-local').onclick = runLocal;
   $('#ats-grok').onclick = runGrok;
+  $('#ats-resume')?.addEventListener('input', updatePaperPreview);
+  $('#ats-note')?.addEventListener('input', updatePaperPreview);
 
   $('#ats-copy').onclick = async () => {
     const text = $('#ats-resume').value || '';
@@ -2125,7 +2595,13 @@ function renderAts(root, actions) {
       toast('Generate first', 'err');
       return;
     }
-    const md = `# ATS pack — ${job.title} @ ${job.company}\n\nURL: ${job.url || '—'}\n\n## Cover note\n\n${note || '_none_'}\n\n## ATS resume\n\n${resume}\n`;
+    const md = applicationPackMarkdown({
+      title: job.title,
+      company: job.company,
+      url: job.url,
+      resume,
+      coverNote: note,
+    });
     downloadText(
       `ats-${(job.company || 'role').replace(/\s+/g, '-').slice(0, 40)}.md`,
       md,
@@ -2133,6 +2609,23 @@ function renderAts(root, actions) {
     );
     toast('Exported', 'ok');
   };
+  $('#ats-print')?.addEventListener('click', () => {
+    const job = readJob();
+    const resume = $('#ats-resume').value || '';
+    const note = $('#ats-note').value || '';
+    if (!resume.trim()) {
+      toast('Generate first', 'err');
+      return;
+    }
+    const result = openPrintablePack({
+      title: job.title,
+      company: job.company,
+      url: job.url,
+      resume,
+      coverNote: note,
+    });
+    toast(result.mode === 'download' ? 'Pack downloaded (popup blocked)' : 'Application pack opened', 'ok');
+  });
   $('#ats-save').onclick = async () => {
     const job = readJob();
     const tailored = $('#ats-resume').value.trim();
@@ -2214,17 +2707,19 @@ async function prepareForJob(jobId) {
         <p class="dim" id="p-summary">${esc(local.changesSummary)}</p>
         <div class="modal-actions">
           <button type="button" class="btn" id="p-copy">Copy pack</button>
-        <button type="button" class="btn" id="p-export-md">Export MD pack</button>
+          <button type="button" class="btn" id="p-export-md">Export MD pack</button>
+          <button type="button" class="btn" id="p-print">Application pack</button>
           <button type="button" class="btn primary" id="p-log">Save to application log</button>
         </div>
       </div>
     </div>`;
   document.body.appendChild(backdrop);
-  const close = () => backdrop.remove();
+  const close = attachModal(backdrop, () => backdrop.remove());
   $('#p-cancel', backdrop).onclick = close;
 
   $('#p-resume', backdrop).value = local.tailoredResume;
   $('#p-note', backdrop).value = local.coverNote;
+  bumpSessionPrepared();
 
   $('#p-local', backdrop).onclick = () => {
     const pack = buildLocalPrep({
@@ -2238,6 +2733,17 @@ async function prepareForJob(jobId) {
     $('#p-summary', backdrop).textContent = pack.changesSummary;
     toast('Local prep refreshed (no API)', 'ok');
   };
+
+  $('#p-print', backdrop)?.addEventListener('click', () => {
+    openPrintablePack({
+      title: job.title,
+      company: job.company,
+      url: job.url,
+      resume: $('#p-resume', backdrop).value,
+      coverNote: $('#p-note', backdrop).value,
+      score: job.score,
+    });
+  });
 
   $('#p-run', backdrop).onclick = async () => {
     const includeCover = $('#p-cover', backdrop).checked;
@@ -2932,11 +3438,24 @@ function renderProfile(root, actions) {
 function renderSettings(root, actions) {
   actions.innerHTML = `
     <button type="button" class="btn" id="s-export">Export JSON</button>
+    <label class="btn" style="cursor:pointer">Import JSON<input type="file" id="s-import" accept="application/json,.json" hidden /></label>
     <button type="button" class="btn primary" id="s-save">Save settings</button>
   `;
   const s = state.settings;
   root.innerHTML = `
     <div class="card" style="max-width:40rem">
+      <h3>Backup &amp; restore</h3>
+      <p class="muted" style="margin-top:0">
+        Export saves jobs, applications, resumes, profile, and settings (API key is redacted).
+        Import restores them into this browser. Use this before clearing site data or switching devices.
+      </p>
+      <div class="row-actions" style="flex-wrap:wrap;gap:0.45rem">
+        <button type="button" class="btn" id="s-export-2">Export all data</button>
+        <label class="btn">Import backup<input type="file" id="s-import-2" accept="application/json,.json" hidden /></label>
+      </div>
+      <p class="dim" style="margin:0.55rem 0 0">Your Grok key stays local and is kept when import file has a redacted key.</p>
+    </div>
+    <div class="card" style="max-width:40rem;margin-top:1rem">
       <h3>Appearance</h3>
       <p class="muted" style="margin-top:0">Warm, soft-contrast palette tuned for long sessions (no pure black/white, reduced blue glare). Pick the mode that matches your room lighting.</p>
       <div class="field"><label>Theme</label>
@@ -3154,9 +3673,41 @@ function renderSettings(root, actions) {
       : `✗ ${r.reason} — check key at console.x.ai and that Base URL is https://api.x.ai/v1`;
     toast(r.ok ? 'Connection OK' : r.reason, r.ok ? 'ok' : 'err');
   };
-  $('#s-export').onclick = async () => {
+  const doExport = async () => {
     const data = await exportAllData();
     downloadJson('bootstraps-export.json', data);
-    toast('Exported', 'ok');
+    toast('Exported full backup', 'ok');
   };
+  const doImport = async (file) => {
+    if (!file) return;
+    if (
+      !confirm(
+        'Import will replace jobs, applications, resume history, and merge settings/profile/resumes. Continue?'
+      )
+    ) {
+      return;
+    }
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      const result = await importAllData(payload, { keepApiKey: true });
+      await reloadAll();
+      toast(
+        `Imported ${result.jobs} jobs · ${result.applications} apps · ${result.history} history`,
+        'ok'
+      );
+      render({ forceShell: true });
+    } catch (err) {
+      toast(err.message || String(err), 'err');
+    }
+  };
+  $('#s-export').onclick = doExport;
+  $('#s-export-2')?.addEventListener('click', doExport);
+  const onImportFile = async (e) => {
+    const f = e.target.files?.[0];
+    await doImport(f);
+    e.target.value = '';
+  };
+  $('#s-import')?.addEventListener('change', onImportFile);
+  $('#s-import-2')?.addEventListener('change', onImportFile);
 }

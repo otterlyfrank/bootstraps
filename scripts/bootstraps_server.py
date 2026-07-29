@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import argparse
 import html as html_lib
+import ipaddress
 import json
 import re
+import socket
 import sys
 import traceback
 import urllib.error
@@ -34,6 +36,70 @@ USER_AGENT = (
 )
 TIMEOUT = 16
 MAX_BYTES = 2_500_000
+MAX_JSON_BODY = 2_000_000
+
+# Hostnames that must never be fetched via the open job-fetch proxy
+_BLOCKED_HOSTS = {
+    "localhost",
+    "localhost.localdomain",
+    "metadata",
+    "metadata.google.internal",
+    "metadata.goog",
+}
+
+
+def _is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+        return True
+    if ip.is_multicast or ip.is_unspecified:
+        return True
+    # Cloud metadata / link-local specials
+    if str(ip) in ("169.254.169.254", "0.0.0.0", "::", "::1"):
+        return True
+    return False
+
+
+def validate_fetch_url(url: str) -> tuple[bool, str]:
+    """
+    SSRF guard for user-supplied URLs (job-fetch).
+    Allows only http(s) to public internet hosts.
+    """
+    url = (url or "").strip()
+    if not url:
+        return False, "url required"
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except Exception:
+        return False, "invalid url"
+    if parsed.scheme not in ("http", "https"):
+        return False, "only http/https allowed"
+    host = (parsed.hostname or "").lower().strip(".")
+    if not host:
+        return False, "missing host"
+    if host in _BLOCKED_HOSTS or host.endswith(".localhost") or host.endswith(".local"):
+        return False, "host blocked"
+    # Literal IP in URL
+    try:
+        ip = ipaddress.ip_address(host)
+        if _is_blocked_ip(ip):
+            return False, "private or reserved address blocked"
+    except ValueError:
+        # Hostname — resolve and check all addresses
+        try:
+            infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+        except socket.gaierror:
+            return False, "could not resolve host"
+        if not infos:
+            return False, "could not resolve host"
+        for info in infos:
+            addr = info[4][0]
+            try:
+                ip = ipaddress.ip_address(addr)
+            except ValueError:
+                continue
+            if _is_blocked_ip(ip):
+                return False, "host resolves to private/reserved address"
+    return True, ""
 
 # ── HTTP helpers ────────────────────────────────────────────
 
@@ -312,6 +378,10 @@ def job_from_url(url: str) -> dict[str, Any]:
         return {"ok": False, "error": "url required"}
     if not re.match(r"^https?://", url, re.I):
         url = "https://" + url
+
+    ok, reason = validate_fetch_url(url)
+    if not ok:
+        return {"ok": False, "error": reason or "url blocked", "url": url}
 
     # Prefer structured ATS APIs
     for resolver in (resolve_lever, resolve_greenhouse, resolve_ashby):
@@ -741,6 +811,8 @@ class Handler(SimpleHTTPRequestHandler):
 
     def _read_json(self) -> dict:
         n = int(self.headers.get("Content-Length") or 0)
+        if n > MAX_JSON_BODY:
+            raise ValueError(f"request body too large (max {MAX_JSON_BODY} bytes)")
         raw = self.rfile.read(n) if n else b"{}"
         return json.loads(raw.decode("utf-8") or "{}")
 
@@ -883,10 +955,9 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             self._json(404, {"ok": False, "error": "not found"})
         except Exception as e:
-            self._json(
-                400,
-                {"ok": False, "error": str(e), "trace": traceback.format_exc()[-500:]},
-            )
+            # Log full traceback server-side only — never leak to clients
+            sys.stderr.write("API error: %s\n%s\n" % (e, traceback.format_exc()))
+            self._json(400, {"ok": False, "error": str(e) or e.__class__.__name__})
 
 
 def main() -> None:
