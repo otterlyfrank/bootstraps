@@ -1160,6 +1160,59 @@ select {
   margin-top: 0.35rem;
 }
 
+/* Job discovery */
+.discovery-panel {
+  margin-bottom: 1rem;
+}
+
+.discovery-card {
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem 1.1rem;
+}
+
+.discovery-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.source-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.5rem;
+}
+
+.source-chip {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  cursor: pointer;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.source-chip:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.source-chip input {
+  margin-top: 0.15rem;
+}
+
+.job-meta .tag,
+.job-card .tag {
+  text-transform: none;
+}
+
 .support-card {
   border: 1px solid var(--border);
   border-radius: var(--radius);

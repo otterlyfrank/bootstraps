@@ -35,7 +35,15 @@ import {
   rescoreAllJobs,
   importBulkJobs,
 } from './jobs/sources.js';
-import { importJobLinks, checkJobFetch, parseJobLinks } from './jobs/links.js';
+import { parseJobLinks } from './jobs/links.js';
+import {
+  loadSourceCatalog,
+  checkDiscovery,
+  discoverJobs,
+  importJobLinksRobust,
+  defaultSearchFromProfile,
+  DISCOVERY_SOURCES,
+} from './jobs/discovery.js';
 import { scoreJob, buildDigest, inferDomains } from './jobs/match.js';
 import { domainPerformance, appsForDomain } from './jobs/learning.js';
 import { buildLocalPrep } from './jobs/hints.js';
@@ -340,8 +348,9 @@ function viewTitle() {
 function renderDashboard(root, actions) {
   actions.innerHTML = `
     <button type="button" class="btn" id="d-sample">Load sample data</button>
+    <button type="button" class="btn primary" id="d-discover">Discover jobs</button>
     <button type="button" class="btn primary" id="d-links">Paste links</button>
-    <button type="button" class="btn" id="d-fetch">Fetch Remotive</button>
+    <button type="button" class="btn" id="d-fetch">Remotive only</button>
     <button type="button" class="btn primary" id="d-digest">Open digest</button>
   `;
   const stats = domainStats();
@@ -429,7 +438,7 @@ function renderDashboard(root, actions) {
               .slice(0, 5)
               .map((j) => jobCardHtml(j, { compact: true }))
               .join('')
-          : `<div class="empty"><h3>No ranked jobs yet</h3><p>Paste job links you’ve collected, fetch Remotive, or load sample data.</p></div>`
+          : `<div class="empty"><h3>No ranked jobs yet</h3><p>Use <strong>Discover jobs</strong> (multi-board) or <strong>Paste links</strong>, or load sample data.</p></div>`
       }
     </div>
     ${supportBlock()}
@@ -449,6 +458,11 @@ function renderDashboard(root, actions) {
     } catch (err) {
       toast(err.message || String(err), 'err');
     }
+  };
+  $('#d-discover').onclick = () => {
+    state.view = 'jobs';
+    render();
+    requestAnimationFrame(() => $('#j-discover')?.click());
   };
   $('#d-links').onclick = () => openPasteLinks();
   $('#d-fetch').onclick = () => fetchJobs();
@@ -499,10 +513,11 @@ function renderDigest(root, actions) {
 
 function renderJobs(root, actions) {
   actions.innerHTML = `
+    <button type="button" class="btn primary" id="j-discover">Discover</button>
     <button type="button" class="btn primary" id="j-links">Paste links</button>
     <button type="button" class="btn" id="j-bulk">Bulk import</button>
     <button type="button" class="btn" id="j-manual">Add manual</button>
-    <button type="button" class="btn" id="j-fetch">Fetch Remotive</button>
+    <button type="button" class="btn" id="j-fetch">Remotive only</button>
   `;
   let jobs = state.jobs;
   if (state.jobQ) {
@@ -511,28 +526,33 @@ function renderJobs(root, actions) {
       (j) =>
         (j.title || '').toLowerCase().includes(q) ||
         (j.company || '').toLowerCase().includes(q) ||
-        (j.url || '').toLowerCase().includes(q)
+        (j.url || '').toLowerCase().includes(q) ||
+        (j.source || '').toLowerCase().includes(q)
     );
   }
   root.innerHTML = `
+    <div id="discovery-panel" class="discovery-panel"></div>
     <div class="filter-row">
-      <input class="search" id="job-q" placeholder="Search jobs…" value="${esc(state.jobQ)}" />
-      <select id="job-cat" style="max-width:12rem">
-        ${REMOTIVE_CATEGORIES.map(
-          (c) =>
-            `<option value="${esc(c.id)}" ${state.settings.remotiveCategory === c.id ? 'selected' : ''}>${esc(c.label)}</option>`
-        ).join('')}
-      </select>
-      <span class="dim">${jobs.length} shown</span>
+      <input class="search" id="job-q" placeholder="Filter loaded jobs…" value="${esc(state.jobQ)}" />
+      <span class="dim">${jobs.length} shown · multi-source discovery + paste links</span>
     </div>
     <div class="job-list">
       ${
         jobs.length
           ? jobs.map((j) => jobCardHtml(j)).join('')
-          : `<div class="empty"><h3>No jobs yet</h3><p><strong>Paste links</strong> you’ve collected (Greenhouse, Lever, LinkedIn, company pages…), fetch Remotive, bulk-import text, or add one job manually. Links are fetched locally, scored against your Working resume, then land here.</p></div>`
+          : `<div class="empty"><h3>No jobs yet</h3><p>Open <strong>Discover</strong> to pull Remotive, Remote OK, Arbeitnow, Jobicy (and optional Himalayas), or <strong>Paste links</strong> for Greenhouse / Lever / Ashby / career pages you’ve saved. Everything is scored against your Working resume.</p></div>`
       }
     </div>
   `;
+  mountDiscoveryPanel($('#discovery-panel'));
+  $('#j-discover').onclick = () => {
+    const panel = $('#discovery-panel');
+    if (panel) {
+      panel.hidden = false;
+      panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      $('#disc-search')?.focus();
+    }
+  };
   $('#j-fetch').onclick = () => fetchJobs();
   $('#j-manual').onclick = () => openManualJob();
   $('#j-bulk').onclick = () => openBulkImport();
@@ -543,10 +563,111 @@ function renderJobs(root, actions) {
       render();
     }
   });
-  $('#job-cat').onchange = async (e) => {
-    state.settings = await setSettings({ remotiveCategory: e.target.value });
-  };
   bindJobCards(root);
+}
+
+async function mountDiscoveryPanel(host) {
+  if (!host) return;
+  const catalog = await loadSourceCatalog();
+  const health = await checkDiscovery();
+  const defaultSearch = defaultSearchFromProfile(state.profile);
+  const sources = catalog.length ? catalog : DISCOVERY_SOURCES;
+
+  host.hidden = false;
+  host.innerHTML = `
+    <div class="card discovery-card">
+      <div class="discovery-head">
+        <div>
+          <h3 style="margin:0">Job discovery</h3>
+          <p class="dim" style="margin:0.25rem 0 0">Multi-board search + your saved links. Local server only — no Bootstraps cloud.</p>
+        </div>
+        <span class="tag ${health.discover ? '' : 'soft'}" id="disc-health">${
+          health.discover ? 'API ready' : esc(health.reason || 'restart ./start.sh')
+        }</span>
+      </div>
+      <div class="field" style="margin-top:0.75rem">
+        <label>Keywords (optional)</label>
+        <input id="disc-search" value="${esc(defaultSearch)}" placeholder="e.g. data analyst strategy research" />
+        <p class="dim" style="margin:0.25rem 0 0">Pre-filled from your Profile skills when available. Leave blank for broader feeds.</p>
+      </div>
+      <div class="field">
+        <label>Sources</label>
+        <div class="source-grid" id="disc-sources">
+          ${sources
+            .map(
+              (s) => `
+            <label class="source-chip">
+              <input type="checkbox" data-source="${esc(s.id)}" ${s.default !== false ? 'checked' : ''} />
+              <span><strong>${esc(s.name)}</strong><br/><span class="dim">${esc(s.blurb || '')}</span></span>
+            </label>`
+            )
+            .join('')}
+        </div>
+      </div>
+      <div class="field">
+        <label>Max roles to import (across sources)</label>
+        <input id="disc-limit" type="number" min="10" max="80" value="40" style="max-width:8rem" />
+      </div>
+      <div class="row-actions" style="margin-top:0.5rem;flex-wrap:wrap;gap:0.5rem">
+        <button type="button" class="btn primary" id="disc-run">Discover &amp; score</button>
+        <button type="button" class="btn" id="disc-links">Paste links…</button>
+        <button type="button" class="btn ghost" id="disc-hide">Hide panel</button>
+      </div>
+      <p class="dim" id="disc-status" style="margin:0.65rem 0 0"></p>
+    </div>
+  `;
+
+  $('#disc-hide', host).onclick = () => {
+    host.hidden = true;
+  };
+  $('#disc-links', host).onclick = () => openPasteLinks();
+  $('#disc-run', host).onclick = async () => {
+    const search = $('#disc-search', host).value.trim();
+    const limit = Number($('#disc-limit', host).value) || 40;
+    const selected = [...host.querySelectorAll('[data-source]:checked')].map((el) => el.dataset.source);
+    if (!selected.length) {
+      toast('Pick at least one source', 'err');
+      return;
+    }
+    if (state.busy) return;
+    state.busy = true;
+    const btn = $('#disc-run', host);
+    const status = $('#disc-status', host);
+    btn.disabled = true;
+    status.textContent = 'Querying boards…';
+    try {
+      const r = await discoverJobs(
+        { sources: selected, search, limit },
+        state.profile,
+        resumeBody(),
+        state.settings.domains,
+        (done, total, job) => {
+          status.textContent = `Scoring ${done}/${total} — ${job.title || '…'} (${job.score ?? 0})`;
+        }
+      );
+      const errKeys = Object.keys(r.errors || {});
+      const countBits = Object.entries(r.counts || {})
+        .map(([k, v]) => `${k}:${v}`)
+        .join(' · ');
+      await reloadAll();
+      toast(
+        `Discovery: +${r.added} new · ${r.updated} updated · ${r.total} from boards${
+          errKeys.length ? ` · ${errKeys.length} source error(s)` : ''
+        }`,
+        r.total ? 'ok' : 'err'
+      );
+      status.textContent = `${countBits || 'no counts'}${
+        errKeys.length ? ` · errors: ${errKeys.map((k) => `${k}=${r.errors[k]}`).join('; ')}` : ''
+      }`;
+      render();
+    } catch (err) {
+      toast(err.message || String(err), 'err');
+      status.textContent = err.message || String(err);
+    } finally {
+      state.busy = false;
+      btn.disabled = false;
+    }
+  };
 }
 
 function scoreClass(score) {
@@ -566,7 +687,9 @@ function jobCardHtml(j, { compact } = {}) {
       <div>
         <h3>${esc(j.title)}</h3>
         <div class="job-meta">${esc(j.company)} · ${esc(j.source)} · ${formatDate(j.fetchedAt)}</div>
-        <div style="margin-top:0.35rem">${domains}<span class="tag">${esc(j.category || '—')}</span></div>
+        <div style="margin-top:0.35rem">${domains}<span class="tag">${esc(j.source || '—')}</span>${
+          j.category ? `<span class="tag">${esc(j.category)}</span>` : ''
+        }</div>
         ${desc}
         ${breakdown}
       </div>
@@ -732,12 +855,13 @@ https://weworkremotely.com/remote-jobs/…"></textarea>
   };
 
   // Probe server once
-  checkJobFetch().then((r) => {
-    if (!r.ok) {
+  checkDiscovery().then((r) => {
+    if (!r.jobFetch) {
       status.innerHTML =
-        '<span style="color:var(--warn)">Job-fetch API offline — start with <code>./start.sh</code> (not plain <code>python -m http.server</code>). Links can still import as stubs.</span>';
+        '<span style="color:var(--warn)">Job-fetch API offline — start with <code>./start.sh</code> (not plain <code>python -m http.server</code>). Links can still import as stubs. Greenhouse/Lever/Ashby resolve best with the full server.</span>';
     } else {
-      status.textContent = 'Local fetch ready — pages will be loaded through Bootstraps server.';
+      status.textContent =
+        'Local fetch ready — ATS APIs (Greenhouse, Lever, Ashby) + HTML extract via Bootstraps server.';
     }
   });
 
@@ -754,7 +878,7 @@ https://weworkremotely.com/remote-jobs/…"></textarea>
     go.disabled = true;
     status.textContent = `0 / ${preview.length}…`;
     try {
-      const r = await importJobLinks(
+      const r = await importJobLinksRobust(
         raw,
         state.profile,
         resumeBody(),

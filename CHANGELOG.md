@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.0 — 2026-07-29
+
+### Maximum job discovery
+
+- **Discover** panel: multi-board search (Remotive, Remote OK, Arbeitnow, Jobicy, optional Himalayas) with keyword box (pre-filled from Profile skills)
+- All board traffic via local server `POST /api/discover` (parallel fetch, dedupe, error reporting per source)
+- **Paste links** upgraded: batch `POST /api/job-fetch-batch`; Greenhouse / Lever / Ashby resolved via official public APIs when URL matches; HTML extract fallback
+- Job cards show **source** tag; empty states / dashboard point at Discover + Paste links
+- Health exposes `discover` + `jobFetch` flags
+
+---
+
 ## 1.2.0 — 2026-07-29
 
 ### Job discovery — paste links
