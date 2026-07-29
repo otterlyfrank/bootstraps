@@ -1131,6 +1131,35 @@ select {
   text-decoration: underline;
 }
 
+.pwa-side-slot .pwa-install-side {
+  width: 100%;
+  justify-content: center;
+  font-size: 0.82rem;
+  padding: 0.45rem 0.6rem;
+}
+
+.pwa-status {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.pwa-howto {
+  margin: 0.5rem 0 0.75rem;
+  padding-left: 1.15rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.pwa-howto li {
+  margin-bottom: 0.35rem;
+}
+
+.pwa-card .btn {
+  margin-top: 0.35rem;
+}
+
 .support-card {
   border: 1px solid var(--border);
   border-radius: var(--radius);
