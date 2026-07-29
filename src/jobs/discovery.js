@@ -80,9 +80,10 @@ async function upsertScored(raw, profile, resumeBody, knownDomains) {
 
 /**
  * Discover from multiple boards via local server.
+ * @param {{ sources?: string[], search?: string, queries?: string[], limit?: number, minScore?: number }} opts
  */
 export async function discoverJobs(
-  { sources, search = '', limit = 40 },
+  { sources, search = '', queries = null, limit = 40, minScore = 0 },
   profile,
   resumeBody,
   knownDomains,
@@ -91,7 +92,7 @@ export async function discoverJobs(
   const res = await fetch('/api/discover', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sources, search, limit }),
+    body: JSON.stringify({ sources, search, queries, limit }),
   });
   if (!res.ok) throw new Error(`Discover failed (${res.status})`);
   const data = await res.json();
@@ -100,6 +101,7 @@ export async function discoverJobs(
   const stubs = data.jobs || [];
   let added = 0;
   let updated = 0;
+  let belowFloor = 0;
   const jobs = [];
 
   for (let i = 0; i < stubs.length; i++) {
@@ -119,21 +121,147 @@ export async function discoverJobs(
     if (!raw.title && !raw.url) continue;
     if (!raw.title) raw.title = 'Untitled role';
     const { record, isNew } = await upsertScored(raw, profile, resumeBody, knownDomains);
+    if (minScore > 0 && (record.score || 0) < minScore) {
+      belowFloor++;
+      // still stored so user can lower floor later; just track
+    }
     if (isNew) added++;
     else updated++;
     jobs.push(record);
     if (onProgress) onProgress(i + 1, stubs.length, record, data);
   }
 
+  // Sort by score; optional filter for return set
+  jobs.sort((a, b) => (b.score || 0) - (a.score || 0));
+  const kept = minScore > 0 ? jobs.filter((j) => (j.score || 0) >= minScore) : jobs;
+
   return {
     added,
     updated,
     total: stubs.length,
-    jobs,
+    jobs: kept,
+    allScored: jobs,
+    belowFloor,
+    minScore,
     counts: data.counts || {},
     errors: data.errors || {},
     search: data.search || search,
+    queries: data.queries || queries || [],
+    queryHits: data.queryHits || {},
   };
+}
+
+/**
+ * Build a multi-query hunt plan from profile + resume text.
+ * Public boards are not LinkedIn — we fan out titles/skills across APIs we can hit.
+ */
+export function buildHuntPlan(profile, resumeBody = '') {
+  const p = profile || {};
+  const resume = String(resumeBody || '');
+  const queries = [];
+  const seen = new Set();
+
+  const add = (q) => {
+    const s = String(q || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!s || s.length < 3 || s.length > 80) return;
+    const key = s.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    queries.push(s);
+  };
+
+  // 1) Preferred domains as soft profession queries
+  for (const d of p.preferredDomains || []) {
+    add(String(d).replace(/\//g, ' '));
+  }
+
+  // 2) Top skills (1–2 word tools make good board filters)
+  for (const sk of (p.skills || []).slice(0, 8)) {
+    add(sk);
+  }
+
+  // 3) Experience keywords / role themes
+  for (const k of (p.experienceKeywords || []).slice(0, 6)) {
+    add(k);
+  }
+
+  // 4) Title-like lines from resume (first 40 lines)
+  const titleHints =
+    /\b(analyst|engineer|developer|researcher|strategist|manager|director|designer|scientist|consultant|specialist|writer|editor|coordinator|lead|officer|architect|product|growth|data|marketing|operations|founder|associate)\b/i;
+  const lines = resume.split(/\n/).map((l) => l.trim()).filter(Boolean).slice(0, 50);
+  for (const line of lines) {
+    if (line.length < 6 || line.length > 60) continue;
+    if (/^(email|phone|http|www\.|linkedin|github|education|experience|skills)/i.test(line)) continue;
+    if (titleHints.test(line) || /^[A-Z][\w\s/&+-]{4,40}$/.test(line)) {
+      // strip company pipes
+      const clean = line.split(/[|@·•]/)[0].trim();
+      if (titleHints.test(clean)) add(clean);
+    }
+  }
+
+  // 5) Composite profession query from best signals
+  const skillBits = (p.skills || []).slice(0, 2).join(' ');
+  const domainBits = (p.preferredDomains || [])[0] || '';
+  if (skillBits && domainBits) add(`${domainBits} ${skillBits}`);
+  if (p.remoteOnly !== false) {
+    // boards are already remote-heavy; don't force "remote" into every query
+  }
+
+  // Cap — server also caps
+  const finalQueries = queries.slice(0, 6);
+  if (!finalQueries.length) {
+    finalQueries.push('remote');
+  }
+
+  return {
+    queries: finalQueries,
+    sources: DISCOVERY_SOURCES.filter((s) => s.default !== false).map((s) => s.id),
+    minScore: 35,
+    limit: 50,
+    remoteOnly: p.remoteOnly !== false,
+    summary: finalQueries.join(' · '),
+  };
+}
+
+/**
+ * Full automated hunt: plan → multi-query discover → score → keep above floor.
+ */
+export async function huntFromResume(
+  profile,
+  resumeBody,
+  knownDomains,
+  { sources, minScore, limit, onProgress, extraQueries } = {}
+) {
+  const plan = buildHuntPlan(profile, resumeBody);
+  if (Array.isArray(extraQueries)) {
+    for (const q of extraQueries) {
+      if (q && !plan.queries.includes(q)) plan.queries.push(String(q).trim());
+    }
+    plan.queries = plan.queries.filter(Boolean).slice(0, 6);
+  }
+  if (sources?.length) plan.sources = sources;
+  if (minScore != null) plan.minScore = minScore;
+  if (limit != null) plan.limit = limit;
+
+  onProgress?.(0, 1, null, { phase: 'plan', plan });
+
+  const result = await discoverJobs(
+    {
+      sources: plan.sources,
+      queries: plan.queries,
+      search: plan.queries[0] || '',
+      limit: plan.limit,
+      minScore: plan.minScore,
+    },
+    profile,
+    resumeBody,
+    knownDomains,
+    onProgress
+  );
+
+  return { ...result, plan };
 }
 
 /**
@@ -212,9 +340,6 @@ export async function importJobLinksRobust(
  * Build default search string from profile (skills + keywords).
  */
 export function defaultSearchFromProfile(profile) {
-  const skills = (profile?.skills || []).slice(0, 4);
-  const kws = (profile?.experienceKeywords || []).slice(0, 3);
-  const parts = [...skills, ...kws].map((s) => String(s).trim()).filter(Boolean);
-  // Prefer short focused query
-  return parts.slice(0, 3).join(' ');
+  const plan = buildHuntPlan(profile, '');
+  return plan.queries.slice(0, 3).join(' ');
 }

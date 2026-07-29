@@ -70,15 +70,23 @@ Then install from the browser as above.
 
 ---
 
-## Job discovery (robust)
+## Job discovery — what can be automated?
+
+| Automatable (public boards) | Walled gardens (not scraped) |
+|----------------------------|------------------------------|
+| Remotive, Remote OK, Arbeitnow, Jobicy, Himalayas | LinkedIn, Indeed, most company portals without public APIs |
+| Paste Greenhouse / Lever / Ashby job URLs | Full-site crawls that violate ToS / need login |
+| Score vs Working resume + profile | Apply on your behalf |
+
+**Hunt from resume** builds multiple search queries from your skills/domains/resume titles, queries those public boards in parallel, scores every hit, and ranks them. Your Grok key is for resume/prep/analysis — **not** required for board pulls.
 
 | Path | How |
 |------|-----|
-| **Discover** | Multi-board: **Remotive**, **Remote OK**, **Arbeitnow**, **Jobicy**, optional **Himalayas**. Keyword search (defaults from Profile skills). Parallel fetch on your machine, score, dedupe. |
-| **Paste links** | Dump Greenhouse / Lever / Ashby / LinkedIn / career URLs. ATS URLs use public JSON APIs when possible; else HTML extract. Batch fetch. |
+| **Hunt from resume** | One click: multi-query plan → boards → score (Job board). |
+| **Custom discover** | Edit keywords/sources in Advanced. |
+| **Paste links** | Your collected URLs (ATS APIs + HTML fetch). |
 | **Remotive only** | Single-board shortcut. |
-| **Bulk import** | Structured paste (Title/Company/URL blocks, TSV, JSON). Pure URL lists auto-route to Paste links. |
-| **Manual** | One-off title + company + URL + JD. |
+| **Bulk / Manual** | Structured or one-off entry. |
 
 `./start.sh` runs `scripts/bootstraps_server.py`:
 

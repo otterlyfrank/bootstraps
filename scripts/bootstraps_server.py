@@ -618,32 +618,77 @@ def extract_resume_pdf_bytes(data: bytes) -> dict[str, Any]:
         return {"ok": False, "error": str(e)}
 
 
-def run_discover(sources: list[str], search: str = "", limit: int = 40) -> dict[str, Any]:
+def _matches_query(job: dict, query: str) -> bool:
+    """Loose match: all significant tokens should appear OR full phrase."""
+    q = (query or "").strip().lower()
+    if not q:
+        return True
+    blob = f"{job.get('title') or ''} {job.get('company') or ''} {job.get('description') or ''}".lower()
+    if q in blob:
+        return True
+    tokens = [t for t in re.split(r"\s+", q) if len(t) >= 3]
+    if not tokens:
+        return True
+    # require majority of tokens (handles multi-skill queries)
+    hits = sum(1 for t in tokens if t in blob)
+    return hits >= max(1, (len(tokens) + 1) // 2)
+
+
+def run_discover(
+    sources: list[str],
+    search: str = "",
+    limit: int = 40,
+    queries: list[str] | None = None,
+) -> dict[str, Any]:
+    """
+    Pull from public job boards. Supports a single search string or multiple
+    queries (OR'd results) so resume-driven hunts can fan out by title/skill.
+    """
     if not sources:
         sources = [s["id"] for s in SOURCE_CATALOG if s.get("default")]
-    per = max(8, limit // max(1, len(sources)) + 5)
+
+    qlist: list[str] = []
+    if queries and isinstance(queries, list):
+        qlist = [str(q).strip() for q in queries if str(q).strip()]
+    if search and search.strip() and search.strip() not in qlist:
+        qlist.insert(0, search.strip())
+    if not qlist:
+        qlist = [""]  # broad pull
+
+    # Cap query fan-out
+    qlist = qlist[:6]
+    per = max(8, min(40, (limit // max(1, len(sources))) + 8))
     jobs: list[dict] = []
     errors: dict[str, str] = {}
     counts: dict[str, int] = {}
+    query_hits: dict[str, int] = {q or "(broad)": 0 for q in qlist}
 
-    def run_one(sid: str) -> tuple[str, list[dict] | None, str | None]:
+    tasks: list[tuple[str, str]] = []  # (source_id, query)
+    for sid in sources:
+        for q in qlist:
+            tasks.append((sid, q))
+
+    def run_one(sid: str, q: str) -> tuple[str, str, list[dict] | None, str | None]:
         fn = SOURCE_FN.get(sid)
         if not fn:
-            return sid, None, "unknown source"
+            return sid, q, None, "unknown source"
         try:
-            return sid, fn(search=search, limit=per), None
+            return sid, q, fn(search=q, limit=per), None
         except Exception as e:
-            return sid, None, str(e) or e.__class__.__name__
+            return sid, q, None, str(e) or e.__class__.__name__
 
-    with ThreadPoolExecutor(max_workers=min(6, len(sources) or 1)) as pool:
-        futs = [pool.submit(run_one, s) for s in sources]
+    with ThreadPoolExecutor(max_workers=min(8, max(2, len(tasks)))) as pool:
+        futs = [pool.submit(run_one, sid, q) for sid, q in tasks]
         for fut in as_completed(futs):
-            sid, batch, err = fut.result()
+            sid, q, batch, err = fut.result()
+            label = q or "(broad)"
             if err:
-                errors[sid] = err
-                counts[sid] = 0
+                # only record first error per source
+                errors.setdefault(sid, err)
+                counts.setdefault(sid, 0)
             else:
-                counts[sid] = len(batch or [])
+                counts[sid] = counts.get(sid, 0) + len(batch or [])
+                query_hits[label] = query_hits.get(label, 0) + len(batch or [])
                 jobs.extend(batch or [])
 
     # dedupe by url / externalId
@@ -654,19 +699,18 @@ def run_discover(sources: list[str], search: str = "", limit: int = 40) -> dict[
         if not key or key in seen:
             continue
         seen.add(key)
-        # optional search re-filter across sources
-        if search:
-            blob = f"{j.get('title')} {j.get('company')} {j.get('description')}".lower()
-            if search.lower() not in blob:
-                continue
-        deduped.append(j)
+        # Keep if matches ANY query (OR). Empty query = keep all.
+        if any(_matches_query(j, q) for q in qlist):
+            deduped.append(j)
 
     return {
         "ok": True,
-        "jobs": deduped[: limit * 2],
+        "jobs": deduped[: max(limit * 3, limit)],
         "counts": counts,
         "errors": errors,
         "search": search,
+        "queries": qlist,
+        "queryHits": query_hits,
         "sources": sources,
     }
 
@@ -765,9 +809,13 @@ class Handler(SimpleHTTPRequestHandler):
                 data = self._read_json()
                 sources = data.get("sources") or []
                 search = (data.get("search") or "").strip()
+                queries = data.get("queries")
                 limit = int(data.get("limit") or 40)
-                limit = max(5, min(limit, 80))
-                self._json(200, run_discover(sources, search=search, limit=limit))
+                limit = max(5, min(limit, 100))
+                self._json(
+                    200,
+                    run_discover(sources, search=search, limit=limit, queries=queries),
+                )
                 return
             if path == "/api/extract-resume":
                 # multipart/form-data file field "file"
