@@ -1,7 +1,7 @@
 @echo off
 REM Bootstraps — double-click to start (Windows)
 cd /d "%~dp0"
-set PORT=8790
+set PORT=8792
 echo.
 echo   Bootstraps - hunt / learn / climb
 echo   Open: http://127.0.0.1:%PORT%

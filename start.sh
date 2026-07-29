@@ -2,7 +2,7 @@
 # Bootstraps — local job hunt cockpit
 set -euo pipefail
 cd "$(dirname "$0")"
-PORT="${PORT:-8790}"
+PORT="${PORT:-8792}"
 echo ""
 echo "  Bootstraps — hunt · learn · climb"
 echo "  Open: http://127.0.0.1:${PORT}"

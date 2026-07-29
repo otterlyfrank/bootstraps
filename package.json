@@ -6,8 +6,8 @@
   "description": "Local-first job hunt optimization — dual resumes, tracking, and rejection learning loops",
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
-    "start": "python3 -m http.server 8790 --bind 127.0.0.1",
-    "serve": "python3 -m http.server 8790 --bind 127.0.0.1"
+    "start": "python3 -m http.server 8792 --bind 127.0.0.1",
+    "serve": "python3 -m http.server 8792 --bind 127.0.0.1"
   },
   "keywords": [
     "jobs",
