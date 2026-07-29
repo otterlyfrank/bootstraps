@@ -101,6 +101,18 @@ def validate_fetch_url(url: str) -> tuple[bool, str]:
                 return False, "host resolves to private/reserved address"
     return True, ""
 
+
+def _origin_ok(origin: str) -> bool:
+    """Only loopback browser origins may call the API cross-origin."""
+    if not origin:
+        return True  # curl / same-origin-less
+    if origin.startswith("http://127.0.0.1:") or origin.startswith("http://localhost:"):
+        return True
+    if origin.startswith("https://127.0.0.1:") or origin.startswith("https://localhost:"):
+        return True
+    return False
+
+
 # ── HTTP helpers ────────────────────────────────────────────
 
 
@@ -796,9 +808,18 @@ class Handler(SimpleHTTPRequestHandler):
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
     def _cors(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = self.headers.get("Origin") or ""
+        if _origin_ok(origin):
+            if origin:
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Vary", "Origin")
+            else:
+                self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1:8792")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def _check_origin(self) -> bool:
+        return _origin_ok(self.headers.get("Origin") or "")
 
     def _json(self, code: int, payload: dict | list) -> None:
         body = json.dumps(payload).encode("utf-8")
@@ -817,11 +838,18 @@ class Handler(SimpleHTTPRequestHandler):
         return json.loads(raw.decode("utf-8") or "{}")
 
     def do_OPTIONS(self) -> None:  # noqa: N802
+        if not self._check_origin():
+            self.send_response(403)
+            self.end_headers()
+            return
         self.send_response(204)
         self._cors()
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
+        if not self._check_origin():
+            self._json(403, {"ok": False, "error": "origin not allowed"})
+            return
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
         if path == "/health":
@@ -868,6 +896,9 @@ class Handler(SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def do_POST(self) -> None:  # noqa: N802
+        if not self._check_origin():
+            self._json(403, {"ok": False, "error": "origin not allowed"})
+            return
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
         try:
