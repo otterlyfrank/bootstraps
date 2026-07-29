@@ -49,8 +49,9 @@ export const DEFAULT_SETTINGS = {
   /** Wizard completed */
   onboardingDone: false,
   /** Donation / support links — shown in-app so users who land jobs can give back */
-  supportGithubSponsors: 'https://github.com/sponsors',
-  supportKofi: 'https://ko-fi.com',
+  /** Leave empty to hide GitHub Sponsors in the app */
+  supportGithubSponsors: '',
+  supportKofi: 'https://ko-fi.com/otterlyfrank',
   supportNote:
     'Bootstraps is free to use. If it helps you land a role (or even get interviews), please consider donating — it keeps the tool improving.',
 };
@@ -129,6 +130,15 @@ export async function getSettings() {
   const map = { ...DEFAULT_SETTINGS };
   for (const row of rows) map[row.key] = row.value;
   if (!Array.isArray(map.domains) || !map.domains.length) map.domains = [...DEFAULT_DOMAINS];
+  // Normalize legacy placeholders (no GitHub Sponsors; Ko-fi is otterlyfrank)
+  const gh = String(map.supportGithubSponsors || '').trim();
+  if (!gh || /^https?:\/\/github\.com\/sponsors\/?$/i.test(gh)) {
+    map.supportGithubSponsors = '';
+  }
+  const kofi = String(map.supportKofi || '').trim();
+  if (!kofi || kofi === 'https://ko-fi.com' || kofi === 'https://ko-fi.com/') {
+    map.supportKofi = DEFAULT_SETTINGS.supportKofi;
+  }
   return map;
 }
 

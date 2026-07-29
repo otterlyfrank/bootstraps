@@ -718,8 +718,24 @@ function wireSessionHud() {
   });
 }
 
+function supportKofiUrl() {
+  const raw = (state.settings?.supportKofi || '').trim();
+  if (raw && raw !== 'https://ko-fi.com' && raw !== 'https://ko-fi.com/') return raw;
+  return 'https://ko-fi.com/otterlyfrank';
+}
+
+/** True only when a real Sponsors URL is set (empty / generic placeholder = hide). */
+function supportGithubUrl() {
+  const raw = (state.settings?.supportGithubSponsors || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\/github\.com\/sponsors\/?$/i.test(raw)) return '';
+  return raw;
+}
+
 function supportBlock() {
   const s = state.settings || {};
+  const kofi = supportKofiUrl();
+  const gh = supportGithubUrl();
   return `
     <div class="support-card" id="support">
       <h3>If Bootstraps helps you get hired</h3>
@@ -728,8 +744,12 @@ function supportBlock() {
           'This tool is free. If it helps you land a job, get interviews, or sharpen your resume — please donate. It funds continued development.'
       )}</p>
       <div class="support-links">
-        <a class="btn primary" href="${esc(s.supportGithubSponsors || 'https://github.com/sponsors')}" target="_blank" rel="noopener">GitHub Sponsors</a>
-        <a class="btn" href="${esc(s.supportKofi || 'https://ko-fi.com')}" target="_blank" rel="noopener">Ko-fi</a>
+        <a class="btn primary" href="${esc(kofi)}" target="_blank" rel="noopener">Support on Ko-fi</a>
+        ${
+          gh
+            ? `<a class="btn" href="${esc(gh)}" target="_blank" rel="noopener">GitHub Sponsors</a>`
+            : ''
+        }
       </div>
       <p class="dim" style="margin:0.75rem 0 0;font-size:0.82rem">Even a one-time coffee after an offer means a lot.</p>
     </div>`;
@@ -3572,9 +3592,9 @@ function renderSettings(root, actions) {
     </div>
     <div class="card" style="max-width:36rem;margin-top:1rem">
       <h3>Support / donations</h3>
-      <p class="muted">Shown to you (and later users) so people who land jobs can give back. Set your real Sponsors / Ko-fi URLs.</p>
-      <div class="field"><label>GitHub Sponsors URL</label><input id="s-gh" value="${esc(s.supportGithubSponsors || '')}" placeholder="https://github.com/sponsors/yourname" /></div>
-      <div class="field"><label>Ko-fi URL</label><input id="s-kofi" value="${esc(s.supportKofi || '')}" placeholder="https://ko-fi.com/yourname" /></div>
+      <p class="muted">Shown in-app so people who land jobs can give back. Ko-fi is the primary link; leave GitHub Sponsors blank to hide it.</p>
+      <div class="field"><label>Ko-fi URL</label><input id="s-kofi" value="${esc(s.supportKofi || 'https://ko-fi.com/otterlyfrank')}" placeholder="https://ko-fi.com/otterlyfrank" /></div>
+      <div class="field"><label>GitHub Sponsors URL <span class="dim">(optional — leave empty to hide)</span></label><input id="s-gh" value="${esc(supportGithubUrl() || '')}" placeholder="(not used)" /></div>
       <div class="field"><label>Message</label><textarea id="s-support-note" rows="3">${esc(s.supportNote || '')}</textarea></div>
     </div>
     ${installUiHtml('full')}
