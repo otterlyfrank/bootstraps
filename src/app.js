@@ -40,6 +40,8 @@ import {
   loadSourceCatalog,
   checkDiscovery,
   discoverJobs,
+  huntFromResume,
+  buildHuntPlan,
   importJobLinksRobust,
   defaultSearchFromProfile,
   DISCOVERY_SOURCES,
@@ -577,104 +579,182 @@ async function mountDiscoveryPanel(host) {
   if (!host) return;
   const catalog = await loadSourceCatalog();
   const health = await checkDiscovery();
+  const plan = buildHuntPlan(state.profile, resumeBody());
   const defaultSearch = defaultSearchFromProfile(state.profile);
   const sources = catalog.length ? catalog : DISCOVERY_SOURCES;
+  const hasResume = !!resumeBody().trim();
 
   host.hidden = false;
   host.innerHTML = `
     <div class="card discovery-card">
       <div class="discovery-head">
         <div>
-          <h3 style="margin:0">Job discovery</h3>
-          <p class="dim" style="margin:0.25rem 0 0">Multi-board search + your saved links. Local server only — no Bootstraps cloud.</p>
+          <h3 style="margin:0">Automated job hunt</h3>
+          <p class="dim" style="margin:0.25rem 0 0">
+            Not LinkedIn/Indeed (walled gardens). We query <strong>public remote boards</strong> with
+            queries derived from your resume + profile, then score every role locally.
+          </p>
         </div>
         <span class="tag ${health.discover ? '' : 'soft'}" id="disc-health">${
           health.discover ? 'API ready' : esc(health.reason || 'restart ./start.sh')
         }</span>
       </div>
-      <div class="field" style="margin-top:0.75rem">
-        <label>Keywords (optional)</label>
-        <input id="disc-search" value="${esc(defaultSearch)}" placeholder="e.g. data analyst strategy research" />
-        <p class="dim" style="margin:0.25rem 0 0">Pre-filled from your Profile skills when available. Leave blank for broader feeds.</p>
-      </div>
-      <div class="field">
-        <label>Sources</label>
-        <div class="source-grid" id="disc-sources">
-          ${sources
-            .map(
-              (s) => `
-            <label class="source-chip">
-              <input type="checkbox" data-source="${esc(s.id)}" ${s.default !== false ? 'checked' : ''} />
-              <span><strong>${esc(s.name)}</strong><br/><span class="dim">${esc(s.blurb || '')}</span></span>
-            </label>`
-            )
-            .join('')}
+
+      <div class="hunt-plan" id="hunt-plan">
+        <div class="hunt-plan-label">Hunt plan from your resume / profile</div>
+        <div class="hunt-queries">
+          ${
+            plan.queries.length
+              ? plan.queries.map((q) => `<span class="tag hunt-q">${esc(q)}</span>`).join('')
+              : '<span class="dim">Upload a resume or fill Profile skills first</span>'
+          }
         </div>
+        <p class="dim" style="margin:0.4rem 0 0">
+          Min match score <strong>${plan.minScore}</strong> · sources: public boards only
+          ${hasResume ? '' : ' · <span style="color:var(--warn)">no Working resume yet</span>'}
+        </p>
       </div>
-      <div class="field">
-        <label>Max roles to import (across sources)</label>
-        <input id="disc-limit" type="number" min="10" max="80" value="40" style="max-width:8rem" />
-      </div>
-      <div class="row-actions" style="margin-top:0.5rem;flex-wrap:wrap;gap:0.5rem">
-        <button type="button" class="btn primary" id="disc-run">Discover &amp; score</button>
+
+      <div class="row-actions" style="margin-top:0.85rem;flex-wrap:wrap;gap:0.5rem">
+        <button type="button" class="btn primary" id="disc-hunt" ${
+          !hasResume || !health.discover ? 'disabled' : ''
+        }>Hunt from resume</button>
+        <button type="button" class="btn" id="disc-run">Custom discover</button>
         <button type="button" class="btn" id="disc-links">Paste links…</button>
         <button type="button" class="btn ghost" id="disc-hide">Hide panel</button>
       </div>
+
+      <details class="disc-advanced" style="margin-top:0.85rem">
+        <summary>Advanced — edit keywords &amp; sources</summary>
+        <div class="field" style="margin-top:0.75rem">
+          <label>Extra keywords (optional, comma-separated)</label>
+          <input id="disc-search" value="${esc(defaultSearch)}" placeholder="e.g. data analyst, policy research, SQL" />
+          <p class="dim" style="margin:0.25rem 0 0">Merged with the hunt plan. Or use Custom discover with only these terms.</p>
+        </div>
+        <div class="field">
+          <label>Sources</label>
+          <div class="source-grid" id="disc-sources">
+            ${sources
+              .map(
+                (s) => `
+              <label class="source-chip">
+                <input type="checkbox" data-source="${esc(s.id)}" ${s.default !== false ? 'checked' : ''} />
+                <span><strong>${esc(s.name)}</strong><br/><span class="dim">${esc(s.blurb || '')}</span></span>
+              </label>`
+              )
+              .join('')}
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label>Max roles to pull</label>
+            <input id="disc-limit" type="number" min="10" max="100" value="50" />
+          </div>
+          <div class="field">
+            <label>Min score to highlight</label>
+            <input id="disc-minscore" type="number" min="0" max="100" value="${plan.minScore}" />
+          </div>
+        </div>
+      </details>
       <p class="dim" id="disc-status" style="margin:0.65rem 0 0"></p>
     </div>
   `;
+
+  const selectedSources = () =>
+    [...host.querySelectorAll('[data-source]:checked')].map((el) => el.dataset.source);
 
   $('#disc-hide', host).onclick = () => {
     host.hidden = true;
   };
   $('#disc-links', host).onclick = () => openPasteLinks();
-  $('#disc-run', host).onclick = async () => {
-    const search = $('#disc-search', host).value.trim();
-    const limit = Number($('#disc-limit', host).value) || 40;
-    const selected = [...host.querySelectorAll('[data-source]:checked')].map((el) => el.dataset.source);
+
+  const runHunt = async (mode) => {
+    if (state.busy) return;
+    const selected = selectedSources();
     if (!selected.length) {
-      toast('Pick at least one source', 'err');
+      toast('Pick at least one source (open Advanced)', 'err');
       return;
     }
-    if (state.busy) return;
+    if (mode === 'hunt' && !resumeBody().trim()) {
+      toast('Upload a resume first (Resumes tab)', 'err');
+      return;
+    }
     state.busy = true;
-    const btn = $('#disc-run', host);
+    const huntBtn = $('#disc-hunt', host);
+    const customBtn = $('#disc-run', host);
     const status = $('#disc-status', host);
-    btn.disabled = true;
-    status.textContent = 'Querying boards…';
+    if (huntBtn) huntBtn.disabled = true;
+    if (customBtn) customBtn.disabled = true;
+    status.textContent = mode === 'hunt' ? 'Building hunt from resume…' : 'Querying boards…';
     try {
-      const r = await discoverJobs(
-        { sources: selected, search, limit },
-        state.profile,
-        resumeBody(),
-        state.settings.domains,
-        (done, total, job) => {
-          status.textContent = `Scoring ${done}/${total} — ${job.title || '…'} (${job.score ?? 0})`;
-        }
-      );
+      const limit = Number($('#disc-limit', host)?.value) || 50;
+      const minScore = Number($('#disc-minscore', host)?.value) || 0;
+      const extra = ($('#disc-search', host)?.value || '')
+        .split(/[,;]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      let r;
+      if (mode === 'hunt') {
+        r = await huntFromResume(state.profile, resumeBody(), state.settings.domains, {
+          sources: selected,
+          minScore,
+          limit,
+          extraQueries: extra,
+          onProgress: (done, total, job, meta) => {
+            if (meta?.phase === 'plan') {
+              status.textContent = `Plan: ${(meta.plan?.queries || []).join(' · ')}`;
+              return;
+            }
+            if (job) {
+              status.textContent = `Scoring ${done}/${total} — ${job.title || '…'} (${job.score ?? 0})`;
+            }
+          },
+        });
+      } else {
+        const search = ($('#disc-search', host)?.value || '').trim();
+        const queries = extra.length ? extra : search ? [search] : plan.queries;
+        r = await discoverJobs(
+          { sources: selected, queries, search: queries[0] || '', limit, minScore },
+          state.profile,
+          resumeBody(),
+          state.settings.domains,
+          (done, total, job) => {
+            status.textContent = `Scoring ${done}/${total} — ${job.title || '…'} (${job.score ?? 0})`;
+          }
+        );
+      }
+
       const errKeys = Object.keys(r.errors || {});
       const countBits = Object.entries(r.counts || {})
         .map(([k, v]) => `${k}:${v}`)
         .join(' · ');
+      const qBits = (r.queries || []).join(' · ');
       await reloadAll();
+      const top = (r.jobs || []).filter((j) => (j.score || 0) >= (minScore || 0)).length;
       toast(
-        `Discovery: +${r.added} new · ${r.updated} updated · ${r.total} from boards${
-          errKeys.length ? ` · ${errKeys.length} source error(s)` : ''
+        `Hunt: +${r.added} new · ${r.updated} updated · ${r.total} pulled · ${top} ≥ score ${minScore}${
+          errKeys.length ? ` · ${errKeys.length} source issue(s)` : ''
         }`,
         r.total ? 'ok' : 'err'
       );
-      status.textContent = `${countBits || 'no counts'}${
+      status.textContent = `Queries: ${qBits || '—'} · ${countBits || 'no counts'}${
         errKeys.length ? ` · errors: ${errKeys.map((k) => `${k}=${r.errors[k]}`).join('; ')}` : ''
-      }`;
+      }. Sort job list by score (default).`;
+      state.jobQ = '';
       render();
     } catch (err) {
       toast(err.message || String(err), 'err');
       status.textContent = err.message || String(err);
     } finally {
       state.busy = false;
-      btn.disabled = false;
+      if (huntBtn) huntBtn.disabled = false;
+      if (customBtn) customBtn.disabled = false;
     }
   };
+
+  $('#disc-hunt', host).onclick = () => runHunt('hunt');
+  $('#disc-run', host).onclick = () => runHunt('custom');
 }
 
 function scoreClass(score) {
@@ -1645,10 +1725,16 @@ async function runResumeIngest(file, statusEl) {
       setStatus(`Saved with local parse. Grok error: ${result.grokError}`);
     } else {
       setStatus(
-        `Done (${mode}). Profile: ${result.profile?.name || '—'} · skills ${skills}. Review Master/Working & Profile, then Discover jobs.`
+        `Done (${mode}). Profile: ${result.profile?.name || '—'} · skills ${skills}. Next: Job board → Hunt from resume.`
       );
     }
     render();
+    // Offer automated hunt after successful ingest
+    if (resumeBody().trim() && confirm('Resume saved. Run automated job hunt from your resume now?')) {
+      state.view = 'jobs';
+      render();
+      requestAnimationFrame(() => $('#disc-hunt')?.click());
+    }
   } catch (err) {
     console.error(err);
     toast(err.message || String(err), 'err');

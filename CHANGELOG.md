@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.5.0 — 2026-07-29
+
+### Hunt from resume (automated pipeline)
+
+- **Hunt from resume**: multi-query plan from profile skills, domains, keywords + resume title lines
+- Server `/api/discover` accepts `queries[]` and fans out across public boards in parallel
+- Score floor (default 35) + query hit reporting; advanced panel for sources/limit/min score
+- After PDF ingest, optional one-click run of the hunt
+- Honest scope: public remote boards (Remotive, Remote OK, Arbeitnow, Jobicy, Himalayas) + paste links — not LinkedIn/Indeed scrapers
+
+---
+
 ## 1.4.1 — 2026-07-29
 
 ### Settings API guide + eye-comfort palette
