@@ -43,6 +43,8 @@ export const DEFAULT_SETTINGS = {
   hideDealBreakers: true,
   /** When true, min score applies even on "All scored" shelf */
   hardScoreFilter: false,
+  /** When true, board only shows roles that appear to require English */
+  requireEnglish: false,
   lastHunt: null,
   /** Named hunt presets: { id, name, queries, sources, minScore, limit, createdAt }[] */
   huntPresets: [],

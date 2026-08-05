@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.12.0 — 2026-08-05
+
+### English-required filter (all users) + local research hook
+
+- **English required** board toggle for everyone (Hunt filter bar + Settings) — keeps roles that mention English / angol requirement, CEFR levels, or EN-written JDs; **EN** chip on matching cards
+- **Local research sources** — optional `data/local_sources.json` (gitignored) can enable personal adapters on the desk server without shipping them as public built-ins
+- Maintainer-only HU scrapers (Profession.hu multi-RSS, Magyar Telekom JSON API) stay behind that local file — not listed for GitHub clones by default
+
 ## 1.11.2 — 2026-08-05
 
 ### Logo rework — funny bootstrap mascot is back

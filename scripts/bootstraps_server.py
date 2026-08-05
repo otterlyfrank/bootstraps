@@ -38,6 +38,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 CUSTOM_SOURCES_PATH = DATA_DIR / "custom_sources.json"
 CUSTOM_SOURCES_EXAMPLE = DATA_DIR / "custom_sources.example.json"
+# Personal research boards (gitignored) — e.g. HU-only scrapes for the maintainer
+LOCAL_SOURCES_PATH = DATA_DIR / "local_sources.json"
 USER_AGENT = (
     "BootstrapsDiscover/1.3 (+local personal job hunt; https://github.com/otterlyfrank/bootstraps)"
 )
@@ -1300,6 +1302,279 @@ def source_blackrock(search: str = "", limit: int = 40) -> list[dict]:
     )
 
 
+# ── Hungarian research boards ────────────────────────────────
+
+
+# Profession.hu public RSS (partner category packs + curated category pages).
+# Keyword query params do not filter the main ?rss feed reliably — we fan out
+# category feeds and apply _matches_query client-side.
+PROFESSION_RSS_FEEDS = (
+    "https://www.profession.hu/partner/files/rss-it.rss",
+    "https://www.profession.hu/partner/files/rss-marketing.rss",
+    "https://www.profession.hu/partner/files/rss-hr.rss",
+    "https://www.profession.hu/partner/files/rss-szamvitel.rss",
+    "https://www.profession.hu/partner/files/rss-mernok.rss",
+    "https://www.profession.hu/partner/files/rss-ertekesites.rss",
+    "https://www.profession.hu/partner/files/rss-adminisztracio.rss",
+    "https://www.profession.hu/partner/files/rss-jog.rss",
+    "https://www.profession.hu/partner/files/rss-ugyfelszolgalat.rss",
+    "https://www.profession.hu/allasok/it-programozas-fejlesztes/1,10?rss",
+    "https://www.profession.hu/allasok/it-uzemeltetes-telekommunikacio/1,25?rss",
+    "https://www.profession.hu/allasok/uzleti-tamogato-kozpontok/1,27?rss",
+    "https://www.profession.hu/allasok/marketing-media-pr/1,12?rss",
+    "https://www.profession.hu/allasok/penzugy-konyveles/1,17?rss",
+    "https://www.profession.hu/allasok/budapest/1,0,23?rss",
+    "https://www.profession.hu/allasok?rss",
+)
+
+
+def _profession_company_from_desc(desc: str, title: str) -> str:
+    """Parse 'Hirdető cég: Foo Kft.' from Profession RSS descriptions."""
+    m = re.search(r"Hirdet[oő]\s+c[eé]g\s*:\s*(.+?)(?:\n|$)", desc or "", re.I)
+    if m:
+        return m.group(1).strip()[:160]
+    # Partner feed often embeds company after a comma/newline under the title line
+    for line in (desc or "").splitlines():
+        line = line.strip()
+        if line.lower().startswith("hirdető cég:") or line.lower().startswith("hirdeto ceg:"):
+            return line.split(":", 1)[-1].strip()[:160]
+    return ""
+
+
+def _profession_clean_url(url: str) -> str:
+    """Strip tracking (/p/NNN, utm_*) from Profession job links."""
+    u = (url or "").strip()
+    if not u:
+        return u
+    try:
+        p = urllib.parse.urlparse(u)
+        # drop /p/569 partner suffix
+        path = re.sub(r"/p/\d+/?$", "", p.path or "")
+        q = urllib.parse.parse_qs(p.query, keep_blank_values=False)
+        q = {k: v for k, v in q.items() if not k.lower().startswith("utm_")}
+        return urllib.parse.urlunparse(
+            (p.scheme, p.netloc, path, "", urllib.parse.urlencode({k: v[0] for k, v in q.items()}), "")
+        )
+    except Exception:
+        return u.split("?")[0]
+
+
+def source_profession(search: str = "", limit: int = 40) -> list[dict]:
+    """
+    Research board: Profession.hu (Hungary's largest job portal) via public RSS.
+
+    Fans out partner category feeds + Budapest + IT/SSC pages, dedupes, filters
+    by search tokens. Not a full-site crawl — capped per-feed for speed.
+    """
+    per_feed = max(8, min(25, limit))
+    q = (search or "").strip()
+
+    def pull(feed_url: str) -> list[dict]:
+        try:
+            batch = source_from_rss(feed_url, "profession", search="", limit=per_feed)
+        except Exception as e:
+            sys.stderr.write(f"profession feed skip {feed_url}: {e}\n")
+            return []
+        local: list[dict] = []
+        for j in batch:
+            url = _profession_clean_url(j.get("url") or "")
+            title = j.get("title") or ""
+            desc = j.get("description") or ""
+            company = j.get("company") or ""
+            # RSS adapter may set company from host ("profession") — replace with real employer
+            if not company or company.lower() in ("profession", "profession.hu", "www.profession.hu"):
+                company = _profession_company_from_desc(desc, title) or company
+            # Location hint from URL slug (…-budapest-1234567)
+            loc = ""
+            m = re.search(
+                r"-(budapest|debrecen|szeged|pecs|p[eé]cs|gyor|gy[oö]r|miskolc|sz[eé]kesfeh[eé]rv[aá]r|"
+                r"ny[ií]regyh[aá]za|kecskem[eé]t|szombathely|veszpr[eé]m|remote|home-office)(?:-\d+)?$",
+                (urllib.parse.urlparse(url).path or "").rstrip("/"),
+                re.I,
+            )
+            if m:
+                loc = m.group(1).replace("-", " ").title()
+            tags = list(j.get("tags") or [])
+            if loc and loc not in tags:
+                tags = [loc] + tags
+            tags = (tags + ["Hungary", "profession.hu"])[:12]
+            remote = bool(j.get("remote")) or bool(
+                re.search(r"remote|home\s*office|t[aá]vmunka|homeoffice", f"{title} {desc}", re.I)
+            )
+            job = _norm(
+                title=title,
+                company=company,
+                url=url or j.get("url") or "",
+                description=desc,
+                source="profession",
+                external_id=f"profession:{url or j.get('externalId') or title}",
+                tags=tags,
+                category=j.get("category") or "",
+                remote=remote,
+            )
+            if q and not _matches_query(job, q):
+                continue
+            local.append(job)
+        return local
+
+    merged: list[dict] = []
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futs = [pool.submit(pull, u) for u in PROFESSION_RSS_FEEDS]
+        for fut in as_completed(futs):
+            try:
+                merged.extend(fut.result() or [])
+            except Exception as e:
+                sys.stderr.write(f"profession feed err: {e}\n")
+
+    out: list[dict] = []
+    seen: set[str] = set()
+    for job in merged:
+        key = (job.get("externalId") or job.get("url") or "").lower().rstrip("/")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(job)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _telekom_detail_text(detail: dict) -> str:
+    """Flatten content1..content20 (+ type/deadline) into a JD-ish blob."""
+    parts: list[str] = []
+    for key in ("type", "deadline", "location", "company"):
+        v = detail.get(key)
+        if v:
+            parts.append(f"{key}: {v}")
+    areas = detail.get("areas") or []
+    if areas:
+        parts.append("Areas: " + ", ".join(str(a) for a in areas if a))
+    for i in range(1, 21):
+        v = detail.get(f"content{i}")
+        if v is None or v == "" or v == []:
+            continue
+        if isinstance(v, list):
+            block = "\n".join(strip_html(str(x)) for x in v if x)
+        else:
+            block = strip_html(str(v))
+        if block.strip():
+            parts.append(block.strip())
+    return "\n\n".join(parts)[:14000]
+
+
+def source_telekom(search: str = "", limit: int = 40, enrich: bool = True) -> list[dict]:
+    """
+    Research board: Magyar Telekom careers (telekom.hu/karrier).
+
+    List: GET https://www.telekom.hu/karrier/api/jobs → jobList
+    Detail: GET …/api/jobs/{id} (optional enrich for full JD + English signals)
+    Public page: https://www.telekom.hu/karrier/jobs?jobId={id}
+    """
+    data = fetch_json("https://www.telekom.hu/karrier/api/jobs")
+    if not isinstance(data, dict):
+        raise ValueError("telekom jobs API returned non-object")
+    rows = data.get("jobList") or []
+    if not isinstance(rows, list):
+        raise ValueError("telekom jobList missing")
+    q = (search or "").strip()
+    stubs: list[dict] = []
+    for j in rows:
+        if not isinstance(j, dict):
+            continue
+        jid = str(j.get("id") or "").strip()
+        title = str(j.get("title") or "").strip()
+        if not title:
+            continue
+        company = str(j.get("company") or "Magyar Telekom").strip()
+        loc = str(j.get("location") or "").strip()
+        labels = j.get("labels") or []
+        if not isinstance(labels, list):
+            labels = []
+        page_url = (
+            f"https://www.telekom.hu/karrier/jobs?jobId={urllib.parse.quote(jid)}"
+            if jid
+            else "https://www.telekom.hu/karrier/jobs"
+        )
+        tags = [str(x) for x in labels if x] + ([loc] if loc else []) + ["Hungary", "Telekom"]
+        desc = f"Location: {loc}\nLabels: {', '.join(str(x) for x in labels if x)}".strip()
+        stubs.append(
+            {
+                "id": jid,
+                "title": title,
+                "company": company,
+                "url": page_url,
+                "location": loc,
+                "tags": tags[:12],
+                "description": desc,
+            }
+        )
+
+    def enrich_one(stub: dict) -> dict:
+        title = stub["title"]
+        company = stub["company"]
+        url = stub["url"]
+        tags = list(stub.get("tags") or [])
+        desc = stub.get("description") or ""
+        jid = stub.get("id") or ""
+        remote = bool(re.search(r"remote|home\s*office|hybrid|t[aá]vmunka", f"{title} {desc}", re.I))
+        apply_url = ""
+        if enrich and jid:
+            try:
+                ok_u, _ = validate_fetch_url(
+                    f"https://www.telekom.hu/karrier/api/jobs/{urllib.parse.quote(jid)}"
+                )
+                if ok_u:
+                    detail = fetch_json(
+                        f"https://www.telekom.hu/karrier/api/jobs/{urllib.parse.quote(jid)}"
+                    )
+                    if isinstance(detail, dict):
+                        desc = _telekom_detail_text(detail) or desc
+                        apply_url = str(detail.get("applyUrl") or "").strip()
+                        if detail.get("type") and str(detail.get("type")) not in tags:
+                            tags.append(str(detail.get("type"))[:40])
+                        remote = remote or bool(
+                            re.search(
+                                r"remote|home\s*office|hybrid|home office|t[aá]vmunka|partial home",
+                                desc,
+                                re.I,
+                            )
+                        )
+            except Exception:
+                pass
+        # Prefer careers page; note apply URL in description when present
+        if apply_url and apply_url not in desc:
+            desc = (desc + f"\n\nApply: {apply_url}").strip()
+        job = _norm(
+            title=title,
+            company=company,
+            url=url,
+            description=desc,
+            source="telekom",
+            external_id=f"telekom:{jid or url}",
+            tags=tags[:12],
+            category=(tags[0] if tags else ""),
+            remote=remote,
+        )
+        return job
+
+    # Cap enrichment work
+    work = stubs[: max(limit * 2, limit)]
+    out: list[dict] = []
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        futs = [pool.submit(enrich_one, s) for s in work]
+        for fut in as_completed(futs):
+            try:
+                job = fut.result()
+            except Exception:
+                continue
+            if q and not _matches_query(job, q):
+                continue
+            out.append(job)
+            if len(out) >= limit:
+                break
+    return out[:limit]
+
+
 def _custom_source_fn(cfg: dict) -> Callable[..., list[dict]]:
     kind = (cfg.get("kind") or "").strip().lower()
     sid = (cfg.get("id") or "custom").strip()
@@ -1581,11 +1856,76 @@ BUILTIN_SOURCE_FN: dict[str, Callable[..., list[dict]]] = {
     "blackrock": source_blackrock,
 }
 
+# Adapters only exposed when data/local_sources.json enables them (local machine).
+LOCAL_RESEARCH_ADAPTERS: dict[str, Callable[..., list[dict]]] = {
+    "profession": source_profession,
+    "telekom": source_telekom,
+}
+
+
+def load_local_research_sources() -> list[dict[str, Any]]:
+    """
+    Personal research boards from data/local_sources.json (gitignored).
+
+    Shape:
+      { "sources": [ { "id", "name", "blurb", "adapter": "profession"|"telekom", "default": false } ] }
+    """
+    path = LOCAL_SOURCES_PATH
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        sys.stderr.write(f"local_sources.json read error: {e}\n")
+        return []
+    items = data.get("sources") if isinstance(data, dict) else data
+    if not isinstance(items, list):
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in items[:MAX_CUSTOM_SOURCES]:
+        if not isinstance(raw, dict):
+            continue
+        adapter = str(raw.get("adapter") or raw.get("id") or "").strip().lower()
+        if adapter not in LOCAL_RESEARCH_ADAPTERS:
+            sys.stderr.write(f"skip local source: unknown adapter {adapter!r}\n")
+            continue
+        sid = re.sub(r"[^a-z0-9_-]+", "-", str(raw.get("id") or adapter).strip().lower()).strip("-")
+        if not sid or sid in BUILTIN_SOURCE_IDS or sid in seen:
+            sys.stderr.write(f"skip local source: bad/reserved/duplicate id {sid!r}\n")
+            continue
+        # Do not collide with custom upload ids
+        seen.add(sid)
+        out.append(
+            {
+                "id": sid,
+                "name": str(raw.get("name") or sid).strip()[:80],
+                "blurb": str(raw.get("blurb") or f"Local research: {adapter}").strip()[:160],
+                "default": bool(raw.get("default")),
+                "tier": "research",
+                "local": True,
+                "adapter": adapter,
+            }
+        )
+    return out
+
 
 def merged_source_catalog() -> list[dict[str, Any]]:
     custom = load_custom_sources()
+    local = load_local_research_sources()
     # Catalog entries for UI (no functions)
     out = [dict(s) for s in BUILTIN_SOURCE_CATALOG]
+    for loc in local:
+        out.append(
+            {
+                "id": loc["id"],
+                "name": loc["name"],
+                "blurb": loc.get("blurb") or "",
+                "default": bool(loc.get("default")),
+                "tier": "research",
+                "local": True,
+            }
+        )
     for c in custom:
         out.append(
             {
@@ -1604,6 +1944,9 @@ def merged_source_catalog() -> list[dict[str, Any]]:
 def resolve_source_fn(sid: str) -> Callable[..., list[dict]] | None:
     if sid in BUILTIN_SOURCE_FN:
         return BUILTIN_SOURCE_FN[sid]
+    for loc in load_local_research_sources():
+        if loc["id"] == sid:
+            return LOCAL_RESEARCH_ADAPTERS.get(loc.get("adapter") or sid)
     for c in load_custom_sources():
         if c["id"] == sid:
             return _custom_source_fn(c)

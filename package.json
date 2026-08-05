@@ -1,6 +1,6 @@
 {
   "name": "bootstraps",
-  "version": "1.11.2",
+  "version": "1.12.0",
   "private": false,
   "type": "module",
   "description": "Local-first job hunt optimization — dual resumes, tracking, and rejection learning loops",

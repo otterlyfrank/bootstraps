@@ -5,7 +5,12 @@
 
 import { scoreJob, tokenize, salaryFit } from '../src/jobs/match.js';
 import { parseJobLinks, normalizeJobUrl } from '../src/jobs/links.js';
-import { filterJobs, dealBreakerHits, daysFromNow } from '../src/lib/job-filters.js';
+import {
+  filterJobs,
+  dealBreakerHits,
+  daysFromNow,
+  requiresEnglish,
+} from '../src/lib/job-filters.js';
 import { parseModelJson } from '../src/ai/prompts.js';
 
 let failed = 0;
@@ -93,6 +98,59 @@ console.log('filterJobs');
       { dealBreakers: ['unpaid'] }
     ).length === 1,
     'deal breaker'
+  );
+  const enJobs = [
+    {
+      id: '1',
+      title: 'Data Engineer',
+      company: 'Telekom',
+      source: 'telekom',
+      score: 70,
+      dismissed: false,
+      description: 'You need fluent English and Python experience.',
+    },
+    {
+      id: '2',
+      title: 'Raktáros',
+      company: 'Local',
+      source: 'profession',
+      score: 60,
+      dismissed: false,
+      description: 'Fizikai munka, magyar nyelvtudás elégséges.',
+    },
+  ];
+  ok(filterJobs(enJobs, { minScore: 0, requireEnglish: true }).length === 1, 'english required filter');
+}
+
+console.log('requiresEnglish');
+{
+  ok(
+    requiresEnglish({ title: 'Analyst', description: 'English required, B2 level.' }) === true,
+    'explicit EN'
+  );
+  ok(
+    requiresEnglish({
+      title: 'Ügyfélszolgálati munkatárs',
+      description: 'Elvárás a tárgyalóképes angol nyelvtudás.',
+    }) === true,
+    'HU angol'
+  );
+  ok(
+    requiresEnglish({
+      title: 'Raktáros',
+      description: 'Fizikai munka Budapesten, teljes munkaidő.',
+      source: 'profession',
+    }) === false,
+    'pure HU no language'
+  );
+  ok(
+    requiresEnglish({
+      title: 'Data Engineer',
+      source: 'telekom',
+      description:
+        'You are the ideal candidate if you have strong Python skills and experience with the team. Work with your skills required for responsibilities.',
+    }) === true,
+    'EN-written HU board JD'
   );
 }
 

@@ -10,3 +10,5 @@ __pycache__/
 .DS_Store
 # Local-only uploaded scrape sources (example JSON is committed)
 data/custom_sources.json
+# Personal research boards (e.g. maintainer HU scrapes) — never push
+data/local_sources.json

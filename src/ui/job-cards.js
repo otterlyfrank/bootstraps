@@ -3,6 +3,7 @@
  */
 
 import { formatDate } from '../lib/export.js';
+import { requiresEnglish } from '../lib/job-filters.js';
 import { esc } from './dom.js';
 import { matchChipsHtml, scoreBreakdownHtml, scoreRingHtml } from './score-ui.js';
 
@@ -12,6 +13,9 @@ import { matchChipsHtml, scoreBreakdownHtml, scoreRingHtml } from './score-ui.js
  */
 export function jobCardHtml(j, { compact } = {}) {
   const domains = (j.domains || []).map((d) => `<span class="tag">${esc(d)}</span>`).join('');
+  const enChip = requiresEnglish(j)
+    ? `<span class="tag soft" title="Looks like English is required or is the working language">EN</span>`
+    : '';
   const desc = compact
     ? ''
     : `<p class="dim" style="margin:0.4rem 0 0">${esc((j.description || '').slice(0, 220))}${
@@ -28,7 +32,7 @@ export function jobCardHtml(j, { compact } = {}) {
         <div class="job-meta">${esc(j.company)} · ${esc(j.source)} · ${formatDate(j.fetchedAt)}</div>
         <div style="margin-top:0.35rem">${domains}${
           j.category ? `<span class="tag">${esc(j.category)}</span>` : ''
-        }<span class="tag">${esc(j.source || '—')}</span></div>
+        }${enChip}<span class="tag">${esc(j.source || '—')}</span></div>
         ${chips}
         ${desc}
         ${breakdown}
