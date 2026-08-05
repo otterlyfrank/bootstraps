@@ -13,12 +13,6 @@
   "categories": ["productivity", "business"],
   "icons": [
     {
-      "src": "./public/bootstraps-mark.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any"
-    },
-    {
       "src": "./public/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
@@ -35,6 +29,12 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    },
+    {
+      "src": "./public/bootstraps-mark.png",
+      "sizes": "256x256",
+      "type": "image/png",
+      "purpose": "any"
     }
   ]
 }

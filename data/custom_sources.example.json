@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "note": "Upload this (or your own) via Hunt → Advanced → Custom scrape sources, or copy to data/custom_sources.json. kinds: rss | sitemap_jsonld | getro",
+  "sources": [
+    {
+      "id": "my-workew",
+      "name": "Workew (custom)",
+      "blurb": "RSS remote jobs",
+      "kind": "rss",
+      "url": "https://workew.com/job_feed/",
+      "default": false
+    },
+    {
+      "id": "my-rwfa",
+      "name": "Real Work From Anywhere (custom)",
+      "blurb": "Sitemap + JobPosting JSON-LD",
+      "kind": "sitemap_jsonld",
+      "url": "https://www.realworkfromanywhere.com/sitemap.xml",
+      "jobPathPrefix": "/jobs/",
+      "default": false
+    },
+    {
+      "id": "my-solana",
+      "name": "Solana Jobs (custom Getro)",
+      "blurb": "Getro collection 858",
+      "kind": "getro",
+      "collectionId": "858",
+      "default": false
+    },
+    {
+      "id": "my-blackrock-budapest",
+      "name": "BlackRock Budapest (custom TalentBrew)",
+      "blurb": "Location facet — careers.blackrock.com/job/budapest/ is not a listing page",
+      "kind": "talentbrew",
+      "url": "https://careers.blackrock.com",
+      "location": "Budapest, HU",
+      "locationId": "3054638",
+      "company": "BlackRock",
+      "default": false
+    }
+  ]
+}

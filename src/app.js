@@ -46,6 +46,9 @@ import {
   importJobLinksRobust,
   defaultSearchFromProfile,
   DISCOVERY_SOURCES,
+  loadCustomSources,
+  saveCustomSources,
+  clearCustomSources,
 } from './jobs/discovery.js';
 import { scoreJob, buildDigest, inferDomains } from './jobs/match.js';
 import { domainPerformance, appsForDomain } from './jobs/learning.js';
@@ -605,7 +608,7 @@ function buildShell() {
     <a class="skip-link" href="#view-root">Skip to content</a>
     <aside class="sidebar" aria-label="Sidebar">
       <div class="brand">
-        <img class="brand-logo" src="./public/bootstraps-mark.svg" alt="Bootstraps work boot" width="52" height="52" />
+        <img class="brand-logo" src="./public/bootstraps-logo.jpg" alt="Bootstraps — pull yourself up by the bootstraps" width="52" height="52" />
         <div>
           <h1>${APP_NAME}</h1>
           <p>Hunt · ATS · climb</p>
@@ -885,7 +888,7 @@ function renderDashboard(root, actions) {
   if (!onboard.complete && !hasJobs) {
     root.innerHTML = `
       <section class="hero">
-        <img class="hero-logo" src="./public/bootstraps-mark.svg" alt="Work boot — Bootstraps mark" />
+        <img class="hero-logo" src="./public/bootstraps-logo.jpg" alt="Bootstraps — pull yourself up by the bootstraps" />
         <div class="hero-copy">
           <p class="hero-kicker">${esc(APP_NAME)}</p>
           <h2 class="hero-tagline">${esc(APP_TAGLINE)}</h2>
@@ -944,7 +947,7 @@ function renderDashboard(root, actions) {
 
   root.innerHTML = `
     <section class="hero compact-hero">
-      <img class="hero-logo" src="./public/bootstraps-mark.svg" alt="Work boot — Bootstraps mark" />
+      <img class="hero-logo" src="./public/bootstraps-logo.jpg" alt="Bootstraps — pull yourself up by the bootstraps" />
       <div class="hero-copy">
         <p class="hero-kicker">Daily loop</p>
         <h2 class="hero-tagline">Hunt · shortlist · prepare · follow up</h2>
@@ -1393,9 +1396,16 @@ async function mountDiscoveryPanel(host) {
             ${sources
               .map(
                 (s) => `
-              <label class="source-chip">
-                <input type="checkbox" data-source="${esc(s.id)}" ${s.default !== false ? 'checked' : ''} />
+              <label class="source-chip ${s.tier === 'research' ? 'tier-research' : s.custom || s.tier === 'custom' ? 'tier-custom' : ''}">
+                <input type="checkbox" data-source="${esc(s.id)}" ${s.default ? 'checked' : ''} />
                 <span><strong>${esc(s.name)}</strong>
+                  ${
+                    s.tier === 'research'
+                      ? '<span class="tag soft" style="font-size:0.65rem;margin-left:0.25rem">research</span>'
+                      : s.custom || s.tier === 'custom'
+                        ? '<span class="tag soft" style="font-size:0.65rem;margin-left:0.25rem">custom</span>'
+                        : ''
+                  }
                   <span class="src-health ${sourceHealth[s.id]?.ok ? 'ok' : sourceHealth[s.id] ? 'err' : ''}" title="${esc(sourceHealth[s.id]?.error || (sourceHealth[s.id]?.ok ? 'ok' : 'unknown'))}">${
                     sourceHealth[s.id]?.ok ? '●' : sourceHealth[s.id] ? '○' : '·'
                   }</span>
@@ -1404,6 +1414,10 @@ async function mountDiscoveryPanel(host) {
               )
               .join('')}
           </div>
+          <p class="dim" style="margin:0.45rem 0 0;font-size:0.8rem">
+            Public boards default on. <strong>Research</strong> boards (Workew, RWFA, Solana, BlackRock Budapest) stay off unless you check them.
+            <strong>Custom</strong> sources come from your uploaded scrape pack (below).
+          </p>
         </div>
         <div class="grid-2">
           <div class="field">
@@ -1414,6 +1428,28 @@ async function mountDiscoveryPanel(host) {
             <label>Min score floor</label>
             <input id="disc-minscore" type="number" min="0" max="100" value="${state.settings?.minJobScore ?? plan.minScore}" />
           </div>
+        </div>
+        <div class="field custom-sources-panel" style="margin-top:1rem">
+          <label>Custom scrape sources (upload for any board)</label>
+          <p class="dim" style="margin:0.25rem 0 0.5rem;font-size:0.82rem">
+            Dual path: research boards above are built in for local hunts; GitHub users can also
+            <strong>upload</strong> RSS / sitemap+JSON-LD / Getro / TalentBrew boards as JSON. Saved to
+            <code>data/custom_sources.json</code> on this machine only (not committed).
+            Kinds: <code>rss</code> · <code>sitemap_jsonld</code> · <code>getro</code> · <code>talentbrew</code>
+            (e.g. BlackRock — use site root + location, not <code>/job/budapest/</code> which 404s).
+          </p>
+          <textarea id="disc-custom-json" rows="8" spellcheck="false" placeholder='{ "sources": [ { "id": "my-rss", "name": "My board", "kind": "rss", "url": "https://…/feed" } ] }' style="font-family:ui-monospace,monospace;font-size:0.78rem;width:100%"></textarea>
+          <div class="row-actions" style="margin-top:0.45rem;flex-wrap:wrap;gap:0.4rem">
+            <button type="button" class="btn primary" id="disc-custom-save">Save upload</button>
+            <button type="button" class="btn" id="disc-custom-example">Load example JSON</button>
+            <button type="button" class="btn" id="disc-custom-reload">Reload from disk</button>
+            <button type="button" class="btn ghost" id="disc-custom-clear">Clear custom</button>
+            <label class="btn ghost" style="cursor:pointer;margin:0">
+              Import file
+              <input type="file" id="disc-custom-file" accept="application/json,.json" hidden />
+            </label>
+          </div>
+          <p class="dim" id="disc-custom-status" style="margin:0.4rem 0 0;font-size:0.8rem"></p>
         </div>
       </details>
       <div id="disc-progress-host" hidden></div>
@@ -1430,6 +1466,108 @@ async function mountDiscoveryPanel(host) {
   };
   $('#disc-links', host).onclick = () => openPasteLinks();
   $('#disc-refresh', host)?.addEventListener('click', () => refreshLastHunt());
+
+  const customStatus = $('#disc-custom-status', host);
+  const customTa = $('#disc-custom-json', host);
+  const setCustomStatus = (msg, ok = true) => {
+    if (customStatus) {
+      customStatus.textContent = msg;
+      customStatus.style.color = ok ? 'var(--muted)' : 'var(--danger, #c44)';
+    }
+  };
+  const fillCustomEditor = async () => {
+    try {
+      const data = await loadCustomSources();
+      const pack = {
+        version: 1,
+        sources: (data.sources || []).map((s) => {
+          const row = {
+            id: s.id,
+            name: s.name,
+            blurb: s.blurb || '',
+            kind: s.kind,
+            default: !!s.default,
+          };
+          if (s.kind === 'getro') row.collectionId = s.collectionId;
+          else if (s.url) row.url = s.url;
+          if (s.kind === 'sitemap_jsonld') row.jobPathPrefix = s.jobPathPrefix || '/jobs/';
+          if (s.kind === 'talentbrew') {
+            if (s.location) row.location = s.location;
+            if (s.locationId) row.locationId = s.locationId;
+            if (s.locationDisplay) row.locationDisplay = s.locationDisplay;
+            if (s.company) row.company = s.company;
+          }
+          return row;
+        }),
+      };
+      if (customTa) {
+        customTa.value = pack.sources.length
+          ? JSON.stringify(pack, null, 2)
+          : JSON.stringify(data.example || { version: 1, sources: [] }, null, 2);
+      }
+      setCustomStatus(
+        pack.sources.length
+          ? `${pack.sources.length} custom source(s) on disk`
+          : 'No custom sources yet — load example or paste JSON'
+      );
+    } catch (e) {
+      setCustomStatus(e.message || String(e), false);
+    }
+  };
+  fillCustomEditor();
+
+  $('#disc-custom-example', host)?.addEventListener('click', async () => {
+    try {
+      const data = await loadCustomSources();
+      if (customTa) customTa.value = JSON.stringify(data.example || { sources: [] }, null, 2);
+      setCustomStatus('Example loaded into editor — click Save upload to apply');
+    } catch (e) {
+      setCustomStatus(e.message || String(e), false);
+    }
+  });
+  $('#disc-custom-reload', host)?.addEventListener('click', () => fillCustomEditor());
+  $('#disc-custom-save', host)?.addEventListener('click', async () => {
+    try {
+      let parsed;
+      try {
+        parsed = JSON.parse(customTa?.value || '{}');
+      } catch {
+        throw new Error('Invalid JSON — fix syntax then retry');
+      }
+      const list = Array.isArray(parsed) ? parsed : parsed.sources;
+      if (!Array.isArray(list)) throw new Error('JSON must be { "sources": [ ... ] }');
+      const r = await saveCustomSources(list);
+      toast(r.message || `Saved ${r.sources?.length || 0} custom source(s)`, 'ok');
+      setCustomStatus(r.message || 'Saved');
+      // Remount panel so checkboxes pick up new catalog
+      await mountDiscoveryPanel(host);
+    } catch (e) {
+      toast(e.message || String(e), 'err');
+      setCustomStatus(e.message || String(e), false);
+    }
+  });
+  $('#disc-custom-clear', host)?.addEventListener('click', async () => {
+    if (!confirm('Remove all uploaded custom scrape sources from this machine?')) return;
+    try {
+      await clearCustomSources();
+      toast('Custom sources cleared', 'ok');
+      await mountDiscoveryPanel(host);
+    } catch (e) {
+      toast(e.message || String(e), 'err');
+    }
+  });
+  $('#disc-custom-file', host)?.addEventListener('change', async (ev) => {
+    const file = ev.target?.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      if (customTa) customTa.value = text;
+      setCustomStatus(`Loaded ${file.name} — click Save upload to apply`);
+    } catch (e) {
+      setCustomStatus(e.message || String(e), false);
+    }
+    ev.target.value = '';
+  });
 
   const runHunt = async (mode) => {
     if (state.busy) return;

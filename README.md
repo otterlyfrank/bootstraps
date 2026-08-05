@@ -89,6 +89,13 @@ Then install from the browser as above.
 | **Paste links** | Your collected URLs (ATS APIs + HTML fetch). |
 | **Remotive only** | Single-board shortcut. |
 | **Bulk / Manual** | Structured or one-off entry. |
+| **Research boards** | Optional: Workew, RWFA, Solana Jobs, **BlackRock Budapest** (unchecked by default). |
+| **Upload scrape sources** | Advanced → custom JSON (`rss` / `sitemap_jsonld` / `getro` / `talentbrew`) → local `data/custom_sources.json`. |
+
+### Dual path: personal research vs public custom uploads
+
+- **Research boards** ship as optional built-ins so a local hunt can tick Workew / RWFA / Solana without config files.
+- **Any clone / GitHub user** can also **upload** their own boards via the same adapters (RSS feed URL, job sitemap + JSON-LD, or Getro collection id). Uploads stay on the machine in `data/custom_sources.json` (gitignored). See `data/custom_sources.example.json`.
 
 `./start.sh` runs `scripts/bootstraps_server.py`:
 

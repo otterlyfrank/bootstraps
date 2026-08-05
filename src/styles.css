@@ -1464,6 +1464,24 @@ select {
   gap: 0.5rem;
 }
 
+.source-chip.tier-research {
+  border-color: color-mix(in srgb, var(--accent, #6cf) 35%, var(--border));
+}
+
+.source-chip.tier-custom {
+  border-color: color-mix(in srgb, var(--ok, #6c6) 40%, var(--border));
+}
+
+.custom-sources-panel textarea {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  color: inherit;
+  padding: 0.55rem 0.65rem;
+  resize: vertical;
+  min-height: 7rem;
+}
+
 .source-chip {
   display: flex;
   gap: 0.5rem;

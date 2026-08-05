@@ -67,7 +67,7 @@ export function installUiHtml(mode = 'compact') {
       return `
         <div class="card pwa-card" id="pwa-install-card">
           <div class="pwa-card-head">
-            <img class="pwa-card-mark" src="./public/bootstraps-mark.svg" alt="" width="40" height="40" />
+            <img class="pwa-card-mark" src="./public/bootstraps-logo.jpg" alt="" width="40" height="40" />
             <div>
               <h3>Installed</h3>
               <p class="muted" style="margin:0">Bootstraps is in a standalone window. Hunt data stays in this browser profile.</p>
@@ -87,7 +87,7 @@ export function installUiHtml(mode = 'compact') {
     return `
       <div class="card pwa-card" id="pwa-install-card">
         <div class="pwa-card-head">
-          <img class="pwa-card-mark" src="./public/bootstraps-mark.svg" alt="" width="44" height="44" />
+          <img class="pwa-card-mark" src="./public/bootstraps-logo.jpg" alt="" width="44" height="44" />
           <div>
             <h3>Install Bootstraps</h3>
             <p class="muted" style="margin:0">Put the hunt cockpit on your Dock / taskbar — no native binary, data stays local.</p>

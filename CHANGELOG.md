@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.11.2 — 2026-08-05
+
+### Logo rework — funny bootstrap mascot is back
+
+- Restored the original **self-bootstrap pull mascot** as the primary brand mark (sidebar, hero, boot screen)
+- Regenerated **icon-192 / icon-512 / apple-touch** from the mascot (reads as the joke on home screens)
+- SVG mark redrawn as a simplified mascot silhouette (not the vague leather blob)
+- SW cache bumped to **v4** so installs pick up new assets
+
+## 1.11.1 — 2026-08-05
+
+### BlackRock Budapest (TalentBrew)
+
+- **Built-in research source** `blackrock` — BlackRock careers filtered to **Budapest, HU**
+- Note: `https://careers.blackrock.com/job/budapest/` is **not** a listing page (404); we use TalentBrew `/search-jobs/results` + location facet
+- New generic adapter kind **`talentbrew`** for custom upload (any TMPN/TalentBrew career site + location)
+- Example custom pack updated
+
+## 1.11.0 — 2026-08-05
+
+### Research boards + custom scrape uploads (dual path)
+
+- **Built-in research sources** (optional, off by default): **Workew** (RSS), **Real Work From Anywhere** (sitemap + JobPosting JSON-LD), **Solana Jobs** (Getro collection 858)
+- **Generic adapters** shared by research + custom: `rss` · `sitemap_jsonld` · `getro`
+- **Custom scrape upload** for any GitHub/local user:
+  - `GET/POST /api/custom-sources` · `POST /api/custom-sources/clear` · `GET /api/custom-sources/example`
+  - Hunt → Advanced → paste/import JSON → Save; stored in local `data/custom_sources.json` (gitignored)
+  - Example pack: `data/custom_sources.example.json`
+- Source chips show **research** / **custom** tags; public boards still default on
+
 ## 1.10.0 — 2026-07-29
 
 ### Finish audit stretch goals + UI modules
