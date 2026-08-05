@@ -7,13 +7,45 @@ import { inferDomains, scoreJob } from './match.js';
 import { normalizeManual } from './sources.js';
 import { parseJobLinks, fetchJobFromLink, normalizeJobUrl } from './links.js';
 
-/** Built-in catalog (mirrors server; used if /api/sources fails). */
+/**
+ * Built-in catalog fallback (mirrors server; used if /api/sources fails).
+ * Public APIs default on; research boards (workew / rwfa / solana) default off.
+ * Custom uploaded sources only come from the server.
+ */
 export const DISCOVERY_SOURCES = [
-  { id: 'remotive', name: 'Remotive', blurb: 'Curated remote roles', default: true },
-  { id: 'remoteok', name: 'Remote OK', blurb: 'Large remote feed', default: true },
-  { id: 'arbeitnow', name: 'Arbeitnow', blurb: 'EU + remote board', default: true },
-  { id: 'jobicy', name: 'Jobicy', blurb: 'Remote jobs API', default: true },
-  { id: 'himalayas', name: 'Himalayas', blurb: 'Remote-first (best-effort)', default: false },
+  { id: 'remotive', name: 'Remotive', blurb: 'Curated remote roles', default: true, tier: 'public' },
+  { id: 'remoteok', name: 'Remote OK', blurb: 'Large remote feed', default: true, tier: 'public' },
+  { id: 'arbeitnow', name: 'Arbeitnow', blurb: 'EU + remote board', default: true, tier: 'public' },
+  { id: 'jobicy', name: 'Jobicy', blurb: 'Remote jobs API', default: true, tier: 'public' },
+  { id: 'himalayas', name: 'Himalayas', blurb: 'Remote-first (best-effort)', default: false, tier: 'public' },
+  {
+    id: 'workew',
+    name: 'Workew',
+    blurb: 'Research: remote board via public RSS',
+    default: false,
+    tier: 'research',
+  },
+  {
+    id: 'rwfa',
+    name: 'Real Work From Anywhere',
+    blurb: 'Research: worldwide remote via sitemap + JSON-LD',
+    default: false,
+    tier: 'research',
+  },
+  {
+    id: 'solana',
+    name: 'Solana Jobs',
+    blurb: 'Research: Solana ecosystem (Getro) — many crypto roles',
+    default: false,
+    tier: 'research',
+  },
+  {
+    id: 'blackrock',
+    name: 'BlackRock (Budapest)',
+    blurb: 'Research: BlackRock TalentBrew · Budapest location facet',
+    default: false,
+    tier: 'research',
+  },
 ];
 
 export async function loadSourceCatalog() {
@@ -28,6 +60,43 @@ export async function loadSourceCatalog() {
     /* fall through */
   }
   return DISCOVERY_SOURCES;
+}
+
+/** Load user-uploaded custom scrape sources (+ example template). */
+export async function loadCustomSources() {
+  const res = await fetch('/api/custom-sources');
+  if (!res.ok) throw new Error(`Custom sources failed (${res.status})`);
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'Custom sources failed');
+  return data;
+}
+
+/**
+ * Replace custom scrape sources (local data/custom_sources.json).
+ * @param {object[]} sources
+ */
+export async function saveCustomSources(sources) {
+  const res = await fetch('/api/custom-sources', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sources }),
+  });
+  if (!res.ok) throw new Error(`Save custom sources failed (${res.status})`);
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'Save failed');
+  return data;
+}
+
+export async function clearCustomSources() {
+  const res = await fetch('/api/custom-sources/clear', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  if (!res.ok) throw new Error(`Clear custom sources failed (${res.status})`);
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'Clear failed');
+  return data;
 }
 
 export async function checkDiscovery() {

@@ -1,5 +1,5 @@
 /* Bootstraps service worker — shell cache for installability + offline reopen */
-const CACHE = 'bootstraps-shell-v3';
+const CACHE = 'bootstraps-shell-v4';
 
 const PRECACHE = [
   './',
@@ -36,6 +36,7 @@ const PRECACHE = [
   './src/ui/session-mode.js',
   './src/resume/ingest.js',
   './public/bootstraps-logo.jpg',
+  './public/bootstraps-mark.png',
   './public/bootstraps-mark.svg',
   './public/icon-192.png',
   './public/icon-512.png',
