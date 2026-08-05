@@ -46,6 +46,7 @@ export const DISCOVERY_SOURCES = [
     default: false,
     tier: 'research',
   },
+  // Profession.hu / Telekom are local-only (data/local_sources.json) — not in the public fallback catalog.
 ];
 
 export async function loadSourceCatalog() {

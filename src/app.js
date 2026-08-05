@@ -352,6 +352,7 @@ function visibleJobs(shelf = state.jobShelf) {
     hardScoreFilter: shelf === 'all' && hard,
     shortlistedOnly: shelf === 'shortlist',
     hideDealBreakers: state.settings?.hideDealBreakers !== false,
+    requireEnglish: !!state.settings?.requireEnglish,
     hideApplied: shelf === 'worth',
     appliedIds: appliedJobIds(),
     profile: state.profile,
@@ -1139,6 +1140,7 @@ function renderDigest(root, actions) {
 function renderJobs(root, actions) {
   const minScore = Number(state.settings?.minJobScore ?? 35);
   const hideDb = state.settings?.hideDealBreakers !== false;
+  const requireEn = !!state.settings?.requireEnglish;
   const lastHunt = state.settings?.lastHunt;
   actions.innerHTML = `
     ${lastHunt ? `<button type="button" class="btn" id="j-refresh" title="Re-run last hunt">Refresh</button>` : ''}
@@ -1169,6 +1171,7 @@ function renderJobs(root, actions) {
   const allN = filterJobs(state.jobs, {
     minScore: 0,
     hideDealBreakers: hideDb,
+    requireEnglish: requireEn,
     profile: state.profile,
     q: state.jobQ,
   }).length;
@@ -1188,6 +1191,9 @@ function renderJobs(root, actions) {
       </label>
       <label class="filter-inline check-inline" title="Apply min score even on All scored">
         <input type="checkbox" id="job-hard" ${state.settings?.hardScoreFilter ? 'checked' : ''} /> Hard score filter
+      </label>
+      <label class="filter-inline check-inline" title="Only roles that mention English / angol requirement (or EN-written JDs on HU boards)">
+        <input type="checkbox" id="job-require-en" ${requireEn ? 'checked' : ''} /> English required
       </label>
       <input class="search" id="job-q" placeholder="Filter…" value="${esc(state.jobQ)}" />
       <span class="dim">${totalJobs} shown${totalJobs > JOBS_PER_PAGE ? ` · page ${state.jobPage + 1}/${totalPages}` : ''}</span>
@@ -1259,6 +1265,11 @@ function renderJobs(root, actions) {
     state.jobPage = 0;
     render();
   };
+  $('#job-require-en')?.addEventListener('change', async (e) => {
+    state.settings = await setSettings({ requireEnglish: !!e.target.checked });
+    state.jobPage = 0;
+    render();
+  });
   $('#job-hidedb').onchange = async (e) => {
     state.settings = await setSettings({ hideDealBreakers: e.target.checked });
     state.jobPage = 0;
@@ -1396,15 +1407,17 @@ async function mountDiscoveryPanel(host) {
             ${sources
               .map(
                 (s) => `
-              <label class="source-chip ${s.tier === 'research' ? 'tier-research' : s.custom || s.tier === 'custom' ? 'tier-custom' : ''}">
+              <label class="source-chip ${s.local ? 'tier-research' : s.tier === 'research' ? 'tier-research' : s.custom || s.tier === 'custom' ? 'tier-custom' : ''}">
                 <input type="checkbox" data-source="${esc(s.id)}" ${s.default ? 'checked' : ''} />
                 <span><strong>${esc(s.name)}</strong>
                   ${
-                    s.tier === 'research'
-                      ? '<span class="tag soft" style="font-size:0.65rem;margin-left:0.25rem">research</span>'
-                      : s.custom || s.tier === 'custom'
-                        ? '<span class="tag soft" style="font-size:0.65rem;margin-left:0.25rem">custom</span>'
-                        : ''
+                    s.local
+                      ? '<span class="tag soft" style="font-size:0.65rem;margin-left:0.25rem">local</span>'
+                      : s.tier === 'research'
+                        ? '<span class="tag soft" style="font-size:0.65rem;margin-left:0.25rem">research</span>'
+                        : s.custom || s.tier === 'custom'
+                          ? '<span class="tag soft" style="font-size:0.65rem;margin-left:0.25rem">custom</span>'
+                          : ''
                   }
                   <span class="src-health ${sourceHealth[s.id]?.ok ? 'ok' : sourceHealth[s.id] ? 'err' : ''}" title="${esc(sourceHealth[s.id]?.error || (sourceHealth[s.id]?.ok ? 'ok' : 'unknown'))}">${
                     sourceHealth[s.id]?.ok ? '●' : sourceHealth[s.id] ? '○' : '·'
@@ -3639,6 +3652,11 @@ function renderSettings(root, actions) {
       <div class="field" style="margin-top:0.75rem">
         <label class="check-inline"><input type="checkbox" id="s-hard" ${s.hardScoreFilter ? 'checked' : ''} /> Hard score filter (min score applies to All scored too)</label>
       </div>
+      <div class="field" style="margin-top:0.45rem">
+        <label class="check-inline" title="Board filter: only roles that mention English / angol, or EN-written JDs on HU boards">
+          <input type="checkbox" id="s-require-en" ${s.requireEnglish ? 'checked' : ''} /> English required (language filter)
+        </label>
+      </div>
       <div class="row-actions" style="margin-top:0.65rem">
         <button type="button" class="btn" id="s-wizard">Replay guided setup</button>
       </div>
@@ -3815,6 +3833,7 @@ function renderSettings(root, actions) {
     state.settings = await setSettings({
       theme: $('#s-theme').value,
       hardScoreFilter: !!$('#s-hard')?.checked,
+      requireEnglish: !!$('#s-require-en')?.checked,
       llmBaseUrl: $('#s-url').value.trim(),
       llmApiKey: $('#s-key').value.trim(),
       fastModel: $('#s-fast').value.trim(),

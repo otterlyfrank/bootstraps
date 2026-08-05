@@ -7,7 +7,12 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { scoreJob, tokenize, salaryFit } from '../src/jobs/match.js';
 import { parseJobLinks, normalizeJobUrl } from '../src/jobs/links.js';
-import { filterJobs, dealBreakerHits, daysFromNow } from '../src/lib/job-filters.js';
+import {
+  filterJobs,
+  dealBreakerHits,
+  daysFromNow,
+  requiresEnglish,
+} from '../src/lib/job-filters.js';
 import { parseModelJson } from '../src/ai/prompts.js';
 
 describe('tokenize', () => {
@@ -112,6 +117,79 @@ describe('filterJobs', () => {
       { dealBreakers: ['unpaid'] }
     );
     assert.deepEqual(hits, ['unpaid']);
+  });
+
+  it('filters english required', () => {
+    const list = filterJobs(
+      [
+        {
+          id: '1',
+          title: 'Data Engineer',
+          company: 'Telekom',
+          source: 'telekom',
+          score: 70,
+          dismissed: false,
+          description: 'You need fluent English and Python experience.',
+        },
+        {
+          id: '2',
+          title: 'Raktáros',
+          company: 'Local',
+          source: 'profession',
+          score: 60,
+          dismissed: false,
+          description: 'Fizikai munka, magyar nyelvtudás elégséges.',
+        },
+      ],
+      { minScore: 0, requireEnglish: true }
+    );
+    assert.equal(list.length, 1);
+    assert.equal(list[0].id, '1');
+  });
+});
+
+describe('requiresEnglish', () => {
+  it('detects explicit English requirement', () => {
+    assert.equal(
+      requiresEnglish({
+        title: 'Analyst',
+        description: 'English required, B2 level.',
+      }),
+      true
+    );
+  });
+
+  it('detects Hungarian angol phrasing', () => {
+    assert.equal(
+      requiresEnglish({
+        title: 'Ügyfélszolgálati munkatárs',
+        description: 'Elvárás a tárgyalóképes angol nyelvtudás.',
+      }),
+      true
+    );
+  });
+
+  it('returns false for pure HU non-language JDs', () => {
+    assert.equal(
+      requiresEnglish({
+        title: 'Raktáros',
+        description: 'Fizikai munka Budapesten, teljes munkaidő.',
+        source: 'profession',
+      }),
+      false
+    );
+  });
+
+  it('detects EN-written Telekom-style JDs', () => {
+    assert.equal(
+      requiresEnglish({
+        title: 'Data Engineer',
+        source: 'telekom',
+        description:
+          'You are the ideal candidate if you have strong Python skills and experience with the team. Work with your skills required for responsibilities.',
+      }),
+      true
+    );
   });
 });
 
