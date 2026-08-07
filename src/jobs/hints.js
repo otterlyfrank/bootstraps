@@ -3,6 +3,8 @@
  */
 
 import { tokenize } from './match.js';
+import { formatAtsPlainText } from '../lib/resume-format.js';
+import { buildLocalCoverBody, formatCoverLetter } from '../lib/cover-letter.js';
 
 const STOP = new Set(
   'a an the and or of to for in on with at by from as is are was were be been being this that these those it its your you we our they their will can may should must about into over under than then so if but not no yes all any each other such only own same too very just also more most some'.split(
@@ -69,7 +71,7 @@ export function analyzeKeywordGaps(resumeBody, jobDescription, profile = {}) {
  * Build a free prep pack without any API: hints + optional reordered draft.
  * Does not invent experience — only reorders emphasis and lists gaps.
  */
-export function buildLocalPrep({ workingResume, job, profile }) {
+export function buildLocalPrep({ workingResume, job, profile, settings = {} }) {
   const gaps = analyzeKeywordGaps(workingResume, job.description || '', profile);
   const title = job.title || 'Role';
   const company = job.company || 'Company';
@@ -81,30 +83,32 @@ export function buildLocalPrep({ workingResume, job, profile }) {
     .slice(0, 15)
     .map((k) => `- JD asks for **${k}** — only add if true; else rephrase closest proof`);
 
-  const coverNote = [
-    `Hi — I'm applying for ${title} at ${company}.`,
-    '',
-    `I focus on remote analysis / research work and can contribute on: ${
-      gaps.present.slice(0, 6).join(', ') || 'the core requirements'
-    }.`,
-    '',
-    'Happy to walk through a relevant example from my background.',
-    '',
-    'Thanks for considering my application.',
-  ].join('\n');
+  // Body only — app formats Dear / Warm Regards / signature from Settings
+  const coverBody = buildLocalCoverBody({
+    job,
+    profile,
+    workingResume,
+    settings,
+  });
+  const coverNote = formatCoverLetter({
+    body: coverBody,
+    job,
+    profile,
+    settings,
+  });
 
   const coveredBlock =
     highlightLines.length > 0 ? highlightLines : ['- (few direct overlaps - check wording)'];
   const gapBlock = gapLines.length > 0 ? gapLines : ['- No major keyword gaps detected'];
 
-  const lines = [
+  // Prep notes stay separate — tailoredResume must be upload-ready resume text only.
+  // Older versions glued a checklist on top and wrecked ATS/PDF formatting.
+  const prepNotes = [
     `# Application prep - ${title} @ ${company}`,
     '',
     '## Target',
     `${title} · ${company}`,
-  ];
-  if (job.url) lines.push(job.url);
-  lines.push(
+    job.url || '',
     '',
     '## Keyword checklist (auto)',
     `Coverage: ${gaps.coveragePct}% of extracted JD keywords appear in your Working resume/profile.`,
@@ -115,16 +119,16 @@ export function buildLocalPrep({ workingResume, job, profile }) {
     '### Gaps to address only if honest',
     ...gapBlock,
     '',
-    '## Working resume (base)',
-    workingResume || '',
-    ''
-  );
+  ]
+    .filter((line, i, arr) => line !== '' || arr[i - 1] !== '')
+    .join('\n');
 
-  const tailoredResume = lines.join('\n');
-  const changesSummary = `Local prep (no AI): ${gaps.coveragePct}% keyword coverage · ${gaps.present.length} matches · ${gaps.missing.length} gaps flagged. Nothing invented — review gaps before claiming skills.`;
+  const tailoredResume = formatAtsPlainText(workingResume || '');
+  const changesSummary = `Local prep (no AI): ${gaps.coveragePct}% keyword coverage · ${gaps.present.length} matches · ${gaps.missing.length} gaps flagged. Resume formatting preserved — review gaps before claiming skills.`;
 
   return {
     tailoredResume,
+    prepNotes,
     coverNote,
     keywordsEmphasized: gaps.present.slice(0, 20),
     keywordsMissing: gaps.missing.slice(0, 20),

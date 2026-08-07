@@ -14,12 +14,14 @@ import {
   listJobs,
 } from '../storage/db.js';
 import { rescoreAllJobs } from '../jobs/sources.js';
+import { formatAtsPlainText, normalizeExtractedResume } from '../lib/resume-format.js';
 
 /**
  * Lightweight offline heuristic if no API key.
  */
 export function heuristicParseResume(text) {
-  const lines = String(text || '')
+  const cleaned = normalizeExtractedResume(text);
+  const lines = String(cleaned || '')
     .split(/\n/)
     .map((l) => l.trim())
     .filter(Boolean);
@@ -65,7 +67,7 @@ export function heuristicParseResume(text) {
   const nameGuess = /^[A-Z][a-z]+(?:\s+[A-Z][a-z.'-]+){0,3}$/.test(first) ? first : '';
 
   return {
-    plainResume: text.trim(),
+    plainResume: formatAtsPlainText(cleaned || text),
     profile: {
       name: nameGuess,
       skills,
@@ -105,10 +107,10 @@ export async function grokParseResume(text, settings) {
   if (!parsed || typeof parsed !== 'object') {
     throw new Error('Grok returned unparseable JSON — try again or paste text manually');
   }
-  const plain = String(parsed.plainResume || parsed.resumeText || text).trim();
+  const plain = formatAtsPlainText(String(parsed.plainResume || parsed.resumeText || text));
   const profile = parsed.profile || {};
   return {
-    plainResume: plain || text.trim(),
+    plainResume: plain || formatAtsPlainText(text),
     profile: {
       name: profile.name || '',
       skills: Array.isArray(profile.skills) ? profile.skills.map(String).filter(Boolean) : [],
@@ -148,7 +150,7 @@ export async function grokParseResume(text, settings) {
 export async function applyResumeIngest(pack, opts = {}) {
   const copyToWorking = opts.copyToWorking !== false;
   const mergeProfile = opts.mergeProfile !== false;
-  const body = (pack.plainResume || '').trim();
+  const body = formatAtsPlainText(pack.plainResume || '');
   if (!body) throw new Error('No resume text to save');
 
   await saveResume('master', body, pack.fileName ? `Master (${pack.fileName})` : 'Master Resume');

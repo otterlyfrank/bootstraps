@@ -1,11 +1,23 @@
 export function downloadText(filename, text, mime = 'text/plain') {
   const blob = new Blob([text], { type: mime });
+  downloadBlob(filename, blob);
+}
+
+/**
+ * Trigger a browser download for any Blob / File.
+ * @param {string} filename
+ * @param {Blob} blob
+ */
+export function downloadBlob(filename, blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2_000);
 }
 
 export function downloadJson(filename, obj) {

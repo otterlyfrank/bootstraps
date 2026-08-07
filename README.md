@@ -92,6 +92,8 @@ Then install from the browser as above.
 | **Research boards** | Optional: Workew, RWFA, Solana Jobs, **BlackRock Budapest** (unchecked by default). |
 | **Upload scrape sources** | Advanced → custom JSON (`rss` / `sitemap_jsonld` / `getro` / `talentbrew`) → local `data/custom_sources.json`. |
 | **English required** | Hunt filter (and Settings): only show roles that appear to require English. Works on every board. |
+| **ATS → Download PDF** | Tailored resume (+ optional cover letter page) as a polished, ATS-friendly US Letter PDF. |
+| **Cover letter** | Simple Dear / body / Warm Regards template; tweak in Settings; Grok draws on resume skills + portfolio. |
 
 ### Dual path: personal research vs public custom uploads
 

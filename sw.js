@@ -1,5 +1,5 @@
 /* Bootstraps service worker — shell cache for installability + offline reopen */
-const CACHE = 'bootstraps-shell-v7';
+const CACHE = 'bootstraps-shell-v10';
 
 const PRECACHE = [
   './',
@@ -19,6 +19,9 @@ const PRECACHE = [
   './src/jobs/discovery.js',
   './src/jobs/links.js',
   './src/lib/export.js',
+  './src/lib/pdf-resume.js',
+  './src/lib/resume-format.js',
+  './src/lib/cover-letter.js',
   './src/lib/diff.js',
   './src/lib/sample.js',
   './src/lib/job-filters.js',

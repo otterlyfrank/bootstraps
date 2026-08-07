@@ -14,6 +14,13 @@ import {
   requiresEnglish,
 } from '../src/lib/job-filters.js';
 import { parseModelJson } from '../src/ai/prompts.js';
+import {
+  foldForPdf,
+  atsPdfFilename,
+  buildResumePdf,
+  layoutResumePages,
+  slugFilenamePart,
+} from '../src/lib/pdf-resume.js';
 
 describe('tokenize', () => {
   it('lowercases and splits keywords', () => {
@@ -211,5 +218,55 @@ describe('daysFromNow', () => {
   it('returns epoch for day offset', () => {
     const t = daysFromNow(3);
     assert.ok(typeof t === 'number' && t > Date.now());
+  });
+});
+
+describe('pdf-resume', () => {
+  it('builds a valid PDF header and EOF', () => {
+    const bytes = buildResumePdf(`JANE DOE
+jane@example.com
+
+EXPERIENCE
+- Built dashboards with SQL and Python
+- Led funnel analysis for growth
+
+SKILLS
+SQL, Python, Tableau`);
+    assert.ok(bytes instanceof Uint8Array);
+    assert.ok(bytes.length > 200);
+    const head = String.fromCharCode(...bytes.slice(0, 8));
+    assert.equal(head.startsWith('%PDF-1.'), true);
+    const tail = String.fromCharCode(...bytes.slice(-12));
+    assert.ok(tail.includes('EOF'));
+  });
+
+  it('rejects empty resume', () => {
+    assert.throws(() => buildResumePdf('   '), /empty/i);
+  });
+
+  it('folds Hungarian double-acute for WinAnsi', () => {
+    const folded = foldForPdf('Szülőföld űrhajó');
+    assert.ok(!folded.includes('ő'));
+    assert.ok(!folded.includes('ű'));
+    assert.ok(folded.toLowerCase().includes('szulo') || folded.toLowerCase().includes('szul'));
+  });
+
+  it('names files from company + title', () => {
+    assert.equal(
+      atsPdfFilename({ company: 'Acme Corp', title: 'Data Analyst' }),
+      'Resume-Acme-Corp-Data-Analyst.pdf'
+    );
+    assert.equal(slugFilenamePart('Hello World!'), 'Hello-World');
+  });
+
+  it('paginates long resumes', () => {
+    const lines = Array.from({ length: 120 }, (_, i) => `Bullet line number ${i + 1} with enough words to wrap a bit.`);
+    const { pages } = layoutResumePages(lines.join('\n'));
+    assert.ok(pages.length >= 2, `expected multi-page, got ${pages.length}`);
+  });
+
+  it('escapes parentheses in content without throwing', () => {
+    const bytes = buildResumePdf('Engineer (remote) at Acme (Series B)');
+    assert.ok(bytes[0] === 0x25); // %
   });
 });
