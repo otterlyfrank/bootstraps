@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.14.0 — 2026-08-07
+
+### Cover letter + polished ATS PDF
+
+- **Resume PDF (ATS-safe polish):** Helvetica only; **centered 20pt bold name**; contact/headline centered; hairline rule under header; **12pt bold ALL-CAPS section titles** with underline rules; **11pt bold job lines**; comfortable margins & line-height; hanging bullets
+- **Cover letter** (not a short note): Grok writes a real multi-paragraph body using resume skills + **otterly.global**; app wraps simple template:
+  - `Dear {company},` → body → `Warm Regards,` → name → contact
+- **Separate PDF page(s)** for the cover letter before the resume; also **Cover letter PDF** alone
+- **Settings → Cover letter:** greeting, sign-off, signature name, contact line, portfolio URL, optional date/address (off by default)
+- **Profile:** email, phone, website fields feed the signature block
+- Format preservation from upload → ATS → PDF (`resume-format.js`)
+- SW cache **v10**
+
+## 1.13.1 — 2026-08-07
+
+### Resume → ATS formatting preservation
+
+- **PDF/DOCX extract** keeps section gaps, smarter run joins, bullet/indent cues (less “wall of text”)
+- **`resume-format.js`** normalizes bullets (`- `), section blanks, headings; strips old local-prep checklist wrappers
+- **Local prep** no longer glues a keyword checklist into the tailored resume (upload-ready body only)
+- **Grok ATS / ingest prompts** require layout preservation (bullets, blanks, job headers, contact block)
+- Post-polish after generate + **Fix formatting** on Resumes; PDF layout: name, headings, hanging bullets, job lines
+- SW cache **v9**
+
+## 1.13.0 — 2026-08-07
+
+### ATS PDF exporter (one-click upload file)
+
+- **Download PDF** on the ATS generator — builds a clean US Letter resume PDF (selectable Helvetica text) ready to upload on job portals
+- Optional **Include cover note in PDF** checkbox
+- Same PDF download in the Hunt **Prepare application** modal
+- Zero new dependencies (`src/lib/pdf-resume.js`); filenames like `Resume-Acme-Data-Analyst.pdf`
+- SW cache **v8** precaches the PDF module
+
 ## 1.12.0 — 2026-08-05
 
 ### English-required filter (all users) + local research hook

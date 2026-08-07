@@ -4,30 +4,61 @@
  */
 
 /**
- * Tailored ATS resume + optional cover note.
+ * Tailored ATS resume + optional cover letter body (software adds Dear / sign-off).
  */
-export function prepareApplicationPrompt({ workingResume, job, profile, includeCover }) {
+export function prepareApplicationPrompt({
+  workingResume,
+  job,
+  profile,
+  includeCover,
+  coverSettings = {},
+}) {
   const jd = (job.description || '').slice(0, 6000);
+  const portfolio =
+    coverSettings.coverPortfolio ||
+    profile.website ||
+    'https://otterly.global';
+  const candidateName = profile.name || coverSettings.coverSignatureName || 'the candidate';
   return {
     system: `You help candidates prepare focused job applications. Output strict JSON only, no markdown fences.
 Schema:
 {
   "tailoredResume": "full resume text optimized for ATS and this role",
-  "coverNote": "short 120-180 word note or empty string",
+  "coverLetterBody": "cover letter BODY only — 3 short paragraphs, no greeting, no sign-off, no signature block",
+  "coverNote": "alias of coverLetterBody for compatibility",
   "keywordsEmphasized": ["..."],
   "changesSummary": "2-4 sentences on what you shifted vs base resume"
 }
 Rules:
 - Preserve truthfulness; never invent employers, degrees, or metrics.
 - Mirror high-value keywords from the JD when honestly supported by the base resume.
-- Prefer clear section headings and scannable bullets.
-- Keep tailoredResume complete enough to paste into an application.`,
+- tailoredResume must be ONLY the resume body (ready to upload) — no checklists, no "application prep" headers, no commentary.
+FORMAT PRESERVATION (critical — small layout cues matter):
+- Keep the same section order and section names as the base when possible (SUMMARY, SKILLS, EXPERIENCE, EDUCATION, etc.).
+- Keep a blank line between sections; never collapse the resume into a wall of text.
+- Keep one achievement per bullet line; bullets must start with "- " (hyphen + space).
+- Keep the name on line 1; contact line(s) immediately under the name.
+- Keep job headers as their own lines (Title — Company (dates) or Title | Company | dates); do not merge header into a bullet.
+- Do not rewrite bullets into paragraphs; do not drop dates, locations, or degree lines.
+- Prefer clear ALL-CAPS or Title section headings already used in the base.
+- Keep tailoredResume complete enough to paste or export as PDF for an application.
+COVER LETTER BODY (when requested):
+- Write a real cover letter body (not a chatty "hi note"): 3 paragraphs, ~220–320 words total.
+- Paragraph 1: role + company + why this fit, grounded in resume facts.
+- Paragraph 2: draw on MULTIPLE concrete skills/tools from the resume (and profile skills list) that map to the JD — do not invent tools.
+- Paragraph 3: close with interest + invite conversation; naturally mention the portfolio/site ${portfolio} when it strengthens credibility (Otterly / otterly.global).
+- Do NOT include "Dear …", sign-off ("Warm Regards"), or the candidate name/signature — the app formats those.
+- Voice: professional, warm, direct. Candidate name for context: ${candidateName}.`,
     user: `BASE WORKING RESUME:
 ${(workingResume || '').slice(0, 10000)}
 
 CANDIDATE PROFILE:
+Name: ${candidateName}
 Skills: ${(profile.skills || []).join(', ') || '—'}
 Keywords: ${(profile.experienceKeywords || []).join(', ') || '—'}
+Email: ${profile.email || '—'}
+Phone: ${profile.phone || '—'}
+Website / portfolio: ${portfolio}
 Salary floor (monthly USD): ${profile.salaryFloorUsd ?? '—'}
 Notes: ${(profile.notes || '').slice(0, 500) || '—'}
 
@@ -41,7 +72,7 @@ Domains: ${(job.domains || []).join(', ') || '—'}
 JOB DESCRIPTION:
 ${jd}
 
-Include cover note: ${includeCover ? 'yes' : 'no (set coverNote to "")'}`,
+Include cover letter body: ${includeCover ? 'yes (fill coverLetterBody + coverNote with the same body text)' : 'no (set coverLetterBody and coverNote to "")'}`,
   };
 }
 
@@ -131,7 +162,7 @@ export function parseResumePrompt({ resumeText }) {
     system: `You extract structured career data from a resume for a job-hunt app.
 Output strict JSON only (no markdown fences):
 {
-  "plainResume": "clean plain-text resume, well sectioned, ATS-friendly, preserve ALL real facts",
+  "plainResume": "clean plain-text resume, well sectioned, ATS-friendly, preserve ALL real facts AND layout cues",
   "headline": "short professional headline",
   "yearsExperience": null or number,
   "summary": "2-4 sentence professional summary",
@@ -153,7 +184,14 @@ Rules:
 - skills: 8–25 high-signal items (tools, methods, languages).
 - experienceKeywords: words that should match job postings (e.g. "SQL", "go-to-market", "due diligence").
 - If salary not stated, leave salary fields null.
-- remoteOnly true unless resume clearly requires on-site only.`,
+- remoteOnly true unless resume clearly requires on-site only.
+FORMAT for plainResume (critical):
+- Preserve section structure from the source; use clear headings (SUMMARY, SKILLS, EXPERIENCE, EDUCATION, …).
+- Blank line between sections.
+- Each bullet on its own line starting with "- ".
+- Name first; contact under name; job title/company/dates on their own header lines.
+- Do not turn bullets into paragraphs; do not drop date ranges or education lines.
+- Fix only broken PDF extraction (merged words, missing bullets) — do not restyle into a different template.`,
     user: `RESUME SOURCE TEXT:
 ${(resumeText || '').slice(0, 24000)}
 

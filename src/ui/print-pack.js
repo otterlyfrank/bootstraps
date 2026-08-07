@@ -11,7 +11,7 @@ export function applicationPackMarkdown({ title, company, url, resume, coverNote
   return `# Application pack — ${title || 'Role'}${company ? ` @ ${company}` : ''}
 
 ${url ? `**Listing:** ${url}\n` : ''}${score != null ? `**Match score:** ${score}\n` : ''}
-## Cover note
+## Cover letter
 
 ${coverNote?.trim() || '_None_'}
 
@@ -154,7 +154,7 @@ export function openPrintablePack(pack) {
     </p>
     ${
       pack.coverNote?.trim()
-        ? `<h2>Cover note</h2><div class="cover">${esc(pack.coverNote.trim())}</div>`
+        ? `<h2>Cover letter</h2><div class="cover">${esc(pack.coverNote.trim())}</div>`
         : ''
     }
     <h2>ATS resume</h2>

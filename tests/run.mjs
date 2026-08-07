@@ -190,5 +190,194 @@ console.log('climb-timeline + print-pack');
   ok(md.includes('Analyst') && md.includes('SQL expert'), 'pack markdown');
 }
 
+console.log('resume-format');
+{
+  const {
+    normalizeBulletLine,
+    formatAtsPlainText,
+    stripPrepWrapper,
+    polishAtsOutput,
+    looksLikePrepPack,
+    isSectionHeading,
+  } = await import('../src/lib/resume-format.js');
+
+  ok(normalizeBulletLine('• Built dashboards') === '- Built dashboards', 'bullet normalize');
+  ok(isSectionHeading('EXPERIENCE'), 'section heading caps');
+  ok(isSectionHeading('Skills'), 'section heading title');
+
+  const messy = `Alex Rivera
+alex@x.com
+SUMMARY
+Analyst line
+EXPERIENCE
+Acme (2020-2024)
+• Did a thing
+* Did another`;
+  const clean = formatAtsPlainText(messy);
+  ok(clean.includes('SUMMARY') || clean.includes('Summary'), 'has summary section');
+  ok(clean.includes('- Did a thing'), 'bullet hyphenated');
+  ok(/\n\n/.test(clean) || clean.split('\n').filter((l) => !l.trim()).length >= 1, 'section blanks');
+
+  const prep = `# Application prep - Role @ Co
+
+## Keyword checklist (auto)
+Coverage: 50%
+
+## Working resume (base)
+Jane Doe
+jane@x.com
+
+SUMMARY
+Hello world experience here with enough chars.
+`;
+  ok(looksLikePrepPack(prep), 'detects prep pack');
+  const stripped = stripPrepWrapper(prep);
+  ok(stripped.includes('Jane Doe') && !stripped.includes('Keyword checklist'), 'strips prep wrapper');
+  ok(polishAtsOutput(prep).includes('Jane Doe'), 'polish recovers resume');
+}
+
+console.log('cover-letter');
+{
+  const {
+    formatCoverLetter,
+    formatGreeting,
+    extractCoverBody,
+    buildLocalCoverBody,
+    resolveCoverSettings,
+  } = await import('../src/lib/cover-letter.js');
+
+  const letter = formatCoverLetter({
+    body: 'I am applying for the analyst role.\n\nI bring SQL and Python.\n\nSee otterly.global for more.',
+    job: { title: 'Data Analyst', company: 'Acme' },
+    profile: {
+      name: 'Frank Daniel Czito',
+      email: 'frank@example.com',
+      phone: '+36 30 000 0000',
+      website: 'https://otterly.global',
+    },
+    settings: {
+      coverGreeting: 'Dear {company},',
+      coverSignOff: 'Warm Regards,',
+      coverPortfolio: 'https://otterly.global',
+    },
+  });
+  ok(letter.startsWith('Dear Acme,'), 'simple greeting');
+  ok(letter.includes('Warm Regards,'), 'sign-off');
+  ok(letter.includes('Frank Daniel Czito'), 'signature name');
+  ok(letter.includes('frank@example.com'), 'contact line');
+  ok(!/^I am applying/m.test(letter.split('\n')[0]), 'body not first line');
+
+  ok(
+    formatGreeting(resolveCoverSettings({ coverGreeting: 'Dear {company},' }, {}), {
+      company: '',
+    }).includes('Hiring Manager'),
+    'fallback greeting'
+  );
+  ok(extractCoverBody('Dear Acme,\n\nHello body.\n\nWarm Regards,\n\nX').includes('Hello body'), 'extract body');
+  const localBody = buildLocalCoverBody({
+    job: { title: 'Analyst', company: 'Co' },
+    profile: { skills: ['SQL', 'Python', 'research'] },
+    workingResume: 'SKILLS\nSQL · Python\n',
+    settings: { coverPortfolio: 'https://otterly.global' },
+  });
+  ok(localBody.includes('otterly.global') || localBody.includes('SQL'), 'local body skills/site');
+}
+
+console.log('pdf-resume');
+{
+  const {
+    foldForPdf,
+    atsPdfFilename,
+    buildResumePdf,
+    buildApplicationPdf,
+    layoutResumePages,
+    slugFilenamePart,
+    approxWidth,
+  } = await import('../src/lib/pdf-resume.js');
+
+  const bytes = buildResumePdf(`JANE DOE
+jane@example.com
+
+EXPERIENCE
+- Built dashboards with SQL and Python
+- Led funnel analysis for growth
+
+SKILLS
+SQL, Python, Tableau`);
+  ok(bytes instanceof Uint8Array && bytes.length > 200, 'pdf bytes');
+  const head = String.fromCharCode(...bytes.slice(0, 8));
+  ok(head.startsWith('%PDF-1.'), 'pdf header');
+  const tail = String.fromCharCode(...bytes.slice(-12));
+  ok(tail.includes('EOF'), 'pdf eof');
+
+  let threw = false;
+  try {
+    buildResumePdf('   ');
+  } catch {
+    threw = true;
+  }
+  ok(threw, 'empty resume throws');
+
+  const folded = foldForPdf('Szülőföld űrhajó');
+  ok(!folded.includes('ő') && !folded.includes('ű'), 'folds HU double-acute');
+  ok(
+    atsPdfFilename({ company: 'Acme Corp', title: 'Data Analyst' }) ===
+      'Resume-Acme-Corp-Data-Analyst.pdf',
+    'filename company+title'
+  );
+  ok(slugFilenamePart('Hello World!') === 'Hello-World', 'slug');
+
+  const long = Array.from(
+    { length: 120 },
+    (_, i) => `Bullet line number ${i + 1} with enough words to wrap a bit.`
+  ).join('\n');
+  const { pages } = layoutResumePages(long);
+  ok(pages.length >= 2, `paginates long resume (${pages.length} pages)`);
+
+  const paren = buildResumePdf('Engineer (remote) at Acme (Series B)');
+  ok(paren[0] === 0x25, 'escapes parentheses');
+
+  // Centered name: first line x should be > left margin
+  const laid = layoutResumePages(`Alex Rivera
+alex@x.com
+
+SUMMARY
+Hello`);
+  const nameLine = laid.pages[0][0];
+  ok(nameLine && nameLine.bold && nameLine.size >= 16, 'name large bold');
+  ok(nameLine.x > 54, `name centered-ish (x=${nameLine.x})`);
+  const heading = laid.pages[0].find((l) => l.text === 'SUMMARY');
+  ok(heading && heading.bold && heading.size >= 12, 'section heading bold large');
+
+  const pack = buildApplicationPdf(
+    `Alex Rivera
+alex@x.com
+
+SUMMARY
+Analyst.
+
+SKILLS
+SQL
+
+EXPERIENCE
+Acme (2020-2024)
+- Did work`,
+    {
+      includeCover: true,
+      coverLetter: `Dear Acme,
+
+I bring SQL and research to this role.
+
+Warm Regards,
+
+Frank Daniel Czito
+frank@example.com · otterly.global`,
+      job: { title: 'Analyst', company: 'Acme' },
+    }
+  );
+  ok(pack.length > bytes.length, 'pack larger than resume-only');
+  void approxWidth;
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

@@ -37,42 +37,102 @@ async function loadMammoth() {
   return mammothLib;
 }
 
+/**
+ * Rebuild page text with reading order, section gaps, and bullet spacing cues.
+ * pdf.js items lose "paragraph" structure; we re-derive it from geometry.
+ */
 function rebuildReadingOrder(content) {
   const items = content.items || [];
   if (!items.length) return '';
+
   // Group by approximate Y (pdf coords: higher y is higher on page)
+  /** @type {{ y: number, parts: { x: number, str: string, w: number }[] }[]} */
   const lines = [];
-  /** @type {{ y: number, parts: { x: number, str: string }[] }[]} */
   let current = null;
   for (const it of items) {
     const str = it.str || '';
     if (!str) continue;
     const x = it.transform?.[4] ?? 0;
     const y = Math.round((it.transform?.[5] ?? 0) * 2) / 2;
-    if (!current || Math.abs(current.y - y) > 2.5) {
+    // Horizontal advance when present — used to decide join vs space between runs
+    const w = typeof it.width === 'number' ? it.width : Math.max(0, str.length * 4);
+    if (!current || Math.abs(current.y - y) > 2.8) {
       current = { y, parts: [] };
       lines.push(current);
     }
-    current.parts.push({ x, str });
+    current.parts.push({ x, str, w });
   }
   lines.sort((a, b) => b.y - a.y);
-  return lines
-    .map((line) =>
-      line.parts
-        .sort((a, b) => a.x - b.x)
-        .map((p) => p.str)
-        .join(' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-    )
-    .filter(Boolean)
-    .join('\n');
+
+  /** @type {{ y: number, text: string, x0: number }[]} */
+  const built = lines.map((line) => {
+    const parts = line.parts.slice().sort((a, b) => a.x - b.x);
+    let text = '';
+    let prevEnd = null;
+    for (const p of parts) {
+      const s = p.str;
+      if (!text) {
+        text = s;
+        prevEnd = p.x + (p.w || 0);
+        continue;
+      }
+      const gap = p.x - (prevEnd ?? p.x);
+      // Tiny/negative gap → same word (kerning); modest gap → space; large → column gap
+      if (gap < 1.2) text += s.replace(/^\s+/, '');
+      else if (gap > 28) text += '  |  ' + s.trim(); // multi-column / date on right
+      else text += (text.endsWith(' ') || s.startsWith(' ') ? '' : ' ') + s;
+      prevEnd = p.x + (p.w || 0);
+    }
+    text = text.replace(/[ \t]{2,}/g, ' ').replace(/\s+\|\s+/g, ' | ').trim();
+    // Normalize bullet glyphs that arrive as lone runs
+    text = text.replace(/^([•●○◦▪▫·∙])\s*/, '• ');
+    const x0 = parts[0]?.x ?? 0;
+    return { y: line.y, text, x0 };
+  }).filter((l) => l.text);
+
+  if (!built.length) return '';
+
+  // Median line spacing → blank line when gap is clearly a paragraph/section break
+  const gaps = [];
+  for (let i = 1; i < built.length; i++) {
+    gaps.push(Math.abs(built[i - 1].y - built[i].y));
+  }
+  gaps.sort((a, b) => a - b);
+  const medianGap = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 12;
+  const paraBreak = Math.max(medianGap * 1.65, medianGap + 6);
+
+  const out = [];
+  for (let i = 0; i < built.length; i++) {
+    if (i > 0) {
+      const dy = Math.abs(built[i - 1].y - built[i].y);
+      if (dy >= paraBreak) out.push('');
+    }
+    // Indented lines under a job often are bullets without glyphs — prefix carefully
+    let t = built[i].text;
+    const prev = out.length ? out[out.length - 1] : '';
+    const prevT = (prev || '').trim();
+    const indented =
+      i > 0 &&
+      built[i].x0 - built[i - 1].x0 > 12 &&
+      !/^[•\-\*\d]/.test(t) &&
+      prevT &&
+      !/^(summary|skills|experience|education|projects)\b/i.test(prevT);
+    if (indented && t.length > 12 && !/^\d{4}/.test(t) && !/@/.test(t)) {
+      // Only auto-bullet if previous looks like a role header or another bullet
+      if (/^[-•]/.test(prevT) || /\(\s*\d{4}|\d{4}\s*[-–—]/.test(prevT) || /present/i.test(prevT)) {
+        t = `• ${t}`;
+      }
+    }
+    out.push(t);
+  }
+  return out.join('\n');
 }
 
 /**
  * Extract text from PDF ArrayBuffer via pdf.js.
  */
 export async function extractPdfText(arrayBuffer, { onProgress } = {}) {
+  const { normalizeExtractedResume } = await import('./resume-format.js');
   const pdfjs = await loadPdfJs();
   const data = arrayBuffer instanceof ArrayBuffer ? new Uint8Array(arrayBuffer) : arrayBuffer;
   const pdf = await pdfjs.getDocument({ data, useSystemFonts: true }).promise;
@@ -88,18 +148,20 @@ export async function extractPdfText(arrayBuffer, { onProgress } = {}) {
     parts.push(rebuildReadingOrder(content));
   }
   onProgress?.({ stage: 'pdf', message: 'PDF text extracted', percent: 100 });
-  return parts.join('\n\n').trim();
+  // Join pages with a section-sized gap, then normalize bullets / headings / blanks
+  return normalizeExtractedResume(parts.filter(Boolean).join('\n\n'));
 }
 
 /**
  * Extract text from DOCX ArrayBuffer via mammoth.
  */
 export async function extractDocxText(arrayBuffer, { onProgress } = {}) {
+  const { normalizeExtractedResume } = await import('./resume-format.js');
   onProgress?.({ stage: 'docx', message: 'Reading Word document…', percent: 20 });
   const mammoth = await loadMammoth();
   const result = await mammoth.extractRawText({ arrayBuffer });
   onProgress?.({ stage: 'docx', message: 'Word document extracted', percent: 100 });
-  return String(result.value || '').trim();
+  return normalizeExtractedResume(String(result.value || ''));
 }
 
 /**
@@ -142,9 +204,11 @@ export async function extractResumeFile(file, { onProgress } = {}) {
   }
 
   // .txt / .md / unknown text
+  const { normalizeExtractedResume } = await import('./resume-format.js');
   onProgress?.({ stage: 'text', message: 'Reading text file…', percent: 50 });
-  const text = new TextDecoder('utf-8', { fatal: false }).decode(buf).trim();
-  if (!text) throw new Error('File is empty.');
+  const raw = new TextDecoder('utf-8', { fatal: false }).decode(buf).trim();
+  if (!raw) throw new Error('File is empty.');
+  const text = normalizeExtractedResume(raw);
   onProgress?.({ stage: 'text', message: 'Done', percent: 100 });
   return { text, kind: 'text', fileName: name, chars: text.length };
 }

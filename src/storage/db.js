@@ -16,6 +16,9 @@ let dbInstance = null;
 
 export const DEFAULT_PROFILE = {
   name: '',
+  email: '',
+  phone: '',
+  website: 'https://otterly.global',
   skills: [], // string[]
   experienceKeywords: [],
   preferredDomains: ['Data Analysis', 'Strategy', 'Research'],
@@ -56,6 +59,24 @@ export const DEFAULT_SETTINGS = {
   supportKofi: 'https://ko-fi.com/otterlyfrank',
   supportNote:
     'Bootstraps is free to use. If it helps you land a role (or even get interviews), please consider donating — it keeps the tool improving.',
+  // ── Cover letter (PDF + Grok) ───────────────────────────
+  /** simple = Dear X / body / Warm Regards / name / contact */
+  coverStyle: 'simple',
+  /** Tokens: {company} {title} {name} */
+  coverGreeting: 'Dear {company},',
+  coverGreetingFallback: 'Dear Hiring Manager,',
+  coverSignOff: 'Warm Regards,',
+  /** Empty → profile.name */
+  coverSignatureName: '',
+  /** Empty → email · phone · portfolio from profile */
+  coverContact: '',
+  coverPortfolio: 'https://otterly.global',
+  coverIncludeDate: false,
+  coverIncludeAddress: false,
+  coverAddress: '',
+  coverSeparatePage: true,
+  /** ATS Download PDF includes cover letter page by default when body exists */
+  coverPdfDefault: true,
 };
 
 function uuid() {

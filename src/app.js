@@ -94,6 +94,17 @@ import { jobCardHtml, bindJobCards as bindJobCardsUi } from './ui/job-cards.js';
 import { climbTimelineHtml } from './ui/climb-timeline.js';
 import { openCommandPalette, buildBootstrapsCommands } from './ui/command-palette.js';
 import { openPrintablePack, applicationPackMarkdown } from './ui/print-pack.js';
+import {
+  downloadResumePdf,
+  downloadCoverLetterPdf,
+  atsPdfFilename,
+} from './lib/pdf-resume.js';
+import { formatAtsPlainText, polishAtsOutput, looksLikePrepPack } from './lib/resume-format.js';
+import {
+  formatCoverLetter,
+  extractCoverBody,
+  buildLocalCoverBody,
+} from './lib/cover-letter.js';
 import { renderDiscoverProgress, clearDiscoverProgress } from './ui/discover-progress.js';
 import {
   restoreSessionMode,
@@ -2573,28 +2584,39 @@ function renderAts(root, actions) {
           <textarea id="ats-jd" rows="12" placeholder="Paste the full JD here for best ATS keyword alignment…">${esc(prefill.description)}</textarea>
         </div>
         <label class="check-inline" style="margin-bottom:0.75rem">
-          <input type="checkbox" id="ats-cover" checked /> Include short cover note
+          <input type="checkbox" id="ats-cover" checked /> Include cover letter
         </label>
         <div class="row-actions" style="flex-wrap:wrap;gap:0.5rem">
           <button type="button" class="btn" id="ats-local" ${!hasMaster ? 'disabled' : ''}>Local prep (free)</button>
           <button type="button" class="btn primary" id="ats-grok" ${!hasMaster || !hasKey ? 'disabled' : ''} title="${hasKey ? '' : 'Add API key in Settings'}">Generate with Grok</button>
         </div>
         <p class="dim" id="ats-status" style="margin:0.65rem 0 0">
-          ${hasKey ? 'Grok ready.' : 'No API key — local prep still works; add key in Settings for full ATS rewrite.'}
+          ${hasKey ? 'Grok ready — cover letter draws on resume skills + otterly.global.' : 'No API key — local prep still works; add key in Settings for full ATS rewrite.'}
         </p>
       </div>
 
       <div class="card ats-out-card">
         <h3 style="margin:0 0 0.35rem;font-family:var(--serif)">Output</h3>
-        <p class="dim" id="ats-summary" style="margin:0 0 0.65rem">Generate to see tailored resume.</p>
+        <p class="dim" id="ats-summary" style="margin:0 0 0.65rem">Generate to see tailored resume + cover letter.</p>
         <div class="field"><label>ATS resume</label><textarea id="ats-resume" rows="16" placeholder="Tailored resume appears here…"></textarea></div>
-        <div class="field"><label>Cover note</label><textarea id="ats-note" rows="5" placeholder="Optional cover note…"></textarea></div>
+        <div class="field">
+          <label>Cover letter <span class="dim">(simple format — tweak greeting/sign-off in Settings)</span></label>
+          <textarea id="ats-note" rows="12" placeholder="Dear Hiring Manager,&#10;&#10;…&#10;&#10;Warm Regards,&#10;&#10;Your Name&#10;email · phone · otterly.global"></textarea>
+        </div>
         <div class="row-actions" style="flex-wrap:wrap;gap:0.5rem">
+          <button type="button" class="btn primary" id="ats-pdf" title="Resume PDF; optionally with cover letter page(s)">Download PDF</button>
+          <button type="button" class="btn" id="ats-pdf-cover-only" title="Cover letter only, separate PDF">Cover letter PDF</button>
           <button type="button" class="btn" id="ats-copy">Copy resume</button>
           <button type="button" class="btn" id="ats-export">Export MD</button>
           <button type="button" class="btn" id="ats-print" title="Printable paper preview">Application pack</button>
-          <button type="button" class="btn primary" id="ats-save">Save to Pipeline</button>
+          <button type="button" class="btn" id="ats-save">Save to Pipeline</button>
         </div>
+        <label class="check-inline" style="margin-top:0.55rem">
+          <input type="checkbox" id="ats-pdf-cover" ${state.settings?.coverPdfDefault !== false ? 'checked' : ''} /> Include cover letter as separate page(s) in PDF
+        </label>
+        <p class="dim" style="margin:0.4rem 0 0">
+          PDF: centered name header, bold section headings. Cover letter uses Settings → Cover letter (Dear / Warm Regards / signature).
+        </p>
         <div class="ats-paper-preview" id="ats-paper" hidden>
           <p class="ats-paper-brand">Bootstraps · application pack</p>
           <h4 id="ats-paper-title" class="ats-paper-title">—</h4>
@@ -2664,6 +2686,21 @@ function renderAts(root, actions) {
     }
   };
 
+  const formatAtsCover = (bodyOrFull, job) => {
+    const raw = String(bodyOrFull || '').trim();
+    if (!raw) return '';
+    // If already a full simple letter, keep user edits; else wrap body with settings
+    if (/^dear\b/i.test(raw) && /warm\s+regards|best\s+regards|sincerely/i.test(raw)) {
+      return raw;
+    }
+    return formatCoverLetter({
+      body: extractCoverBody(raw) || raw,
+      job,
+      profile: state.profile,
+      settings: state.settings,
+    });
+  };
+
   const updatePaperPreview = () => {
     const job = readJob();
     const resume = $('#ats-resume')?.value || '';
@@ -2678,7 +2715,7 @@ function renderAts(root, actions) {
     $('#ats-paper-title').textContent = job.title + (job.company ? ` @ ${job.company}` : '');
     $('#ats-paper-meta').textContent = job.url || 'No listing URL';
     const body = [];
-    if (note.trim()) body.push('COVER NOTE\n\n' + note.trim(), '\n\n———\n\n');
+    if (note.trim()) body.push('COVER LETTER\n\n' + note.trim(), '\n\n———\n\n');
     body.push(resume.trim());
     $('#ats-paper-body').textContent = body.join('');
   };
@@ -2693,13 +2730,16 @@ function renderAts(root, actions) {
       workingResume: masterResumeBody(),
       job,
       profile: state.profile,
+      settings: state.settings,
     });
-    $('#ats-resume').value = pack.tailoredResume;
+    $('#ats-resume').value = polishAtsOutput(pack.tailoredResume, {
+      baseResume: masterResumeBody(),
+    });
     $('#ats-note').value = $('#ats-cover').checked ? pack.coverNote : '';
-    $('#ats-summary').textContent = pack.changesSummary + ' · local (no API)';
+    $('#ats-summary').textContent = pack.changesSummary + ' · local (no API) · format preserved';
     updatePaperPreview();
     bumpSessionPrepared();
-    toast('Local ATS pack ready', 'ok');
+    toast('Local ATS pack ready (layout preserved)', 'ok');
   };
 
   const runGrok = async () => {
@@ -2718,16 +2758,16 @@ function renderAts(root, actions) {
       job,
       profile: state.profile,
       includeCover,
+      coverSettings: state.settings,
     });
-    // Bias prompt toward master + ATS in user message note
     const userAts =
       user +
-      `\n\nIMPORTANT: Base resume above is the MASTER resume. Optimize for ATS parsing: clear headings, standard section names, keyword density from the JD without inventing experience.`;
+      `\n\nIMPORTANT: Base resume above is the MASTER resume. Optimize for ATS keyword fit while PRESERVING layout: blank lines between sections, "- " bullets, job header lines with dates, name + contact block. Output tailoredResume as resume body only (no prep checklist). Cover letter body must weave in multiple real skills from the resume and can cite otterly.global / portfolio. Never invent experience.`;
     const btn = $('#ats-grok');
     const status = $('#ats-status');
     btn.disabled = true;
     btn.textContent = 'Generating…';
-    status.textContent = 'Grok is writing ATS-ready resume from Master…';
+    status.textContent = 'Grok is writing ATS resume + cover letter from Master…';
     try {
       const { content } = await chatCompletion({
         baseUrl: state.settings.llmBaseUrl,
@@ -2741,14 +2781,27 @@ function renderAts(root, actions) {
         tier: 'fast',
       });
       const parsed = parseModelJson(content);
-      $('#ats-resume').value = parsed.tailoredResume || content;
-      $('#ats-note').value = includeCover ? parsed.coverNote || '' : '';
-      $('#ats-summary').textContent = (parsed.changesSummary || 'ATS resume ready') + ' · via Grok · Master base';
+      const rawOut = parsed.tailoredResume || content;
+      $('#ats-resume').value = polishAtsOutput(rawOut, { baseResume: masterResumeBody() });
+      if (includeCover) {
+        const body =
+          parsed.coverLetterBody || parsed.coverNote || buildLocalCoverBody({
+            job,
+            profile: state.profile,
+            workingResume: masterResumeBody(),
+            settings: state.settings,
+          });
+        $('#ats-note').value = formatAtsCover(body, job);
+      } else {
+        $('#ats-note').value = '';
+      }
+      $('#ats-summary').textContent =
+        (parsed.changesSummary || 'ATS pack ready') + ' · via Grok · Master base · cover letter formatted';
       state.usage = await getUsageSummary();
       updatePaperPreview();
       bumpSessionPrepared();
-      toast('ATS resume ready', 'ok');
-      status.textContent = 'Done — copy, export, print pack, or save to Pipeline.';
+      toast('ATS resume + cover letter ready', 'ok');
+      status.textContent = 'Done — download PDF (cover on its own page) or save to Pipeline.';
     } catch (err) {
       status.textContent = err.message || String(err);
       toast(err.message || String(err), 'err');
@@ -2763,6 +2816,82 @@ function renderAts(root, actions) {
   $('#ats-resume')?.addEventListener('input', updatePaperPreview);
   $('#ats-note')?.addEventListener('input', updatePaperPreview);
 
+  const exportAtsPdf = () => {
+    const job = readJob();
+    let resume = $('#ats-resume').value || '';
+    let note = $('#ats-note').value || '';
+    if (!resume.trim()) {
+      toast('Generate first', 'err');
+      return;
+    }
+    if (looksLikePrepPack(resume)) {
+      resume = polishAtsOutput(resume, { baseResume: masterResumeBody() });
+      $('#ats-resume').value = resume;
+      toast('Stripped old prep checklist from resume before PDF', 'ok');
+    } else {
+      resume = formatAtsPlainText(resume);
+      $('#ats-resume').value = resume;
+    }
+    try {
+      const includeCover = !!$('#ats-pdf-cover')?.checked && !!note.trim();
+      if (includeCover) {
+        note = formatAtsCover(note, job);
+        $('#ats-note').value = note;
+      }
+      const result = downloadResumePdf(resume, {
+        title: job.title,
+        company: job.company,
+        coverLetter: includeCover ? note : '',
+        includeCover,
+        job,
+        profile: state.profile,
+        settings: state.settings,
+        filename: atsPdfFilename({
+          company: job.company,
+          title: job.title,
+          kind: includeCover ? 'pack' : 'resume',
+        }),
+      });
+      toast(
+        includeCover
+          ? `PDF ready — cover letter page(s) + resume · ${result.filename}`
+          : `PDF ready — ${result.filename}`,
+        'ok'
+      );
+      const status = $('#ats-status');
+      if (status) status.textContent = `Downloaded ${result.filename} — upload on the job site.`;
+    } catch (err) {
+      toast(err.message || String(err), 'err');
+    }
+  };
+
+  const exportCoverOnly = () => {
+    const job = readJob();
+    let note = $('#ats-note').value || '';
+    if (!note.trim()) {
+      toast('Generate a cover letter first', 'err');
+      return;
+    }
+    note = formatAtsCover(note, job);
+    $('#ats-note').value = note;
+    try {
+      const result = downloadCoverLetterPdf(note, {
+        title: job.title,
+        company: job.company,
+        filename: atsPdfFilename({
+          company: job.company,
+          title: job.title,
+          kind: 'cover',
+        }),
+      });
+      toast(`Cover letter PDF — ${result.filename}`, 'ok');
+    } catch (err) {
+      toast(err.message || String(err), 'err');
+    }
+  };
+
+  $('#ats-pdf')?.addEventListener('click', exportAtsPdf);
+  $('#ats-pdf-cover-only')?.addEventListener('click', exportCoverOnly);
   $('#ats-copy').onclick = async () => {
     const text = $('#ats-resume').value || '';
     if (!text.trim()) {
@@ -2879,7 +3008,7 @@ async function prepareForJob(jobId) {
         </div>
       </div>
       <label class="field" style="flex-direction:row;align-items:center;gap:0.5rem">
-        <input type="checkbox" id="p-cover" checked /> Include short cover note
+        <input type="checkbox" id="p-cover" checked /> Include cover letter
       </label>
       <div class="modal-actions" style="justify-content:flex-start">
         <button type="button" class="btn primary" id="p-local">Use free local prep</button>
@@ -2888,21 +3017,40 @@ async function prepareForJob(jobId) {
       </div>
       <div id="p-out">
         <div class="field" style="margin-top:1rem"><label>Prep pack / tailored resume</label><textarea id="p-resume" rows="14"></textarea></div>
-        <div class="field"><label>Cover note</label><textarea id="p-note" rows="5"></textarea></div>
+        <div class="field"><label>Cover letter</label><textarea id="p-note" rows="10"></textarea></div>
         <p class="dim" id="p-summary">${esc(local.changesSummary)}</p>
-        <div class="modal-actions">
+        <div class="modal-actions" style="flex-wrap:wrap">
+          <button type="button" class="btn primary" id="p-pdf" title="Download PDF (optional cover letter page)">Download PDF</button>
+          <button type="button" class="btn" id="p-pdf-cover" title="Cover letter only">Cover letter PDF</button>
           <button type="button" class="btn" id="p-copy">Copy pack</button>
           <button type="button" class="btn" id="p-export-md">Export MD pack</button>
           <button type="button" class="btn" id="p-print">Application pack</button>
-          <button type="button" class="btn primary" id="p-log">Save to application log</button>
+          <button type="button" class="btn" id="p-log">Save to application log</button>
         </div>
+        <label class="check-inline" style="margin-top:0.45rem">
+          <input type="checkbox" id="p-pdf-incl-cover" ${state.settings?.coverPdfDefault !== false ? 'checked' : ''} /> Include cover letter page(s) in PDF
+        </label>
       </div>
     </div>`;
   document.body.appendChild(backdrop);
   const close = attachModal(backdrop, () => backdrop.remove());
   $('#p-cancel', backdrop).onclick = close;
 
-  $('#p-resume', backdrop).value = local.tailoredResume;
+  const formatPrepCover = (raw) => {
+    const t = String(raw || '').trim();
+    if (!t) return '';
+    if (/^dear\b/i.test(t) && /warm\s+regards|best\s+regards|sincerely/i.test(t)) return t;
+    return formatCoverLetter({
+      body: extractCoverBody(t) || t,
+      job,
+      profile: state.profile,
+      settings: state.settings,
+    });
+  };
+
+  $('#p-resume', backdrop).value = polishAtsOutput(local.tailoredResume, {
+    baseResume: resumeBody(),
+  });
   $('#p-note', backdrop).value = local.coverNote;
   bumpSessionPrepared();
 
@@ -2911,12 +3059,15 @@ async function prepareForJob(jobId) {
       workingResume: resumeBody(),
       job,
       profile: state.profile,
+      settings: state.settings,
     });
-    $('#p-resume', backdrop).value = pack.tailoredResume;
+    $('#p-resume', backdrop).value = polishAtsOutput(pack.tailoredResume, {
+      baseResume: resumeBody(),
+    });
     if ($('#p-cover', backdrop).checked) $('#p-note', backdrop).value = pack.coverNote;
     else $('#p-note', backdrop).value = '';
     $('#p-summary', backdrop).textContent = pack.changesSummary;
-    toast('Local prep refreshed (no API)', 'ok');
+    toast('Local prep refreshed (format preserved)', 'ok');
   };
 
   $('#p-print', backdrop)?.addEventListener('click', () => {
@@ -2924,7 +3075,7 @@ async function prepareForJob(jobId) {
       title: job.title,
       company: job.company,
       url: job.url,
-      resume: $('#p-resume', backdrop).value,
+      resume: formatAtsPlainText($('#p-resume', backdrop).value),
       coverNote: $('#p-note', backdrop).value,
       score: job.score,
     });
@@ -2937,6 +3088,7 @@ async function prepareForJob(jobId) {
       job,
       profile: state.profile,
       includeCover,
+      coverSettings: state.settings,
     });
     $('#p-run', backdrop).disabled = true;
     $('#p-run', backdrop).textContent = 'Generating…';
@@ -2953,9 +3105,25 @@ async function prepareForJob(jobId) {
         tier: 'fast',
       });
       const parsed = parseModelJson(content);
-      $('#p-resume', backdrop).value = parsed.tailoredResume || content;
-      $('#p-note', backdrop).value = includeCover ? parsed.coverNote || '' : '';
-      $('#p-summary', backdrop).textContent = (parsed.changesSummary || '') + ' · via Grok';
+      $('#p-resume', backdrop).value = polishAtsOutput(parsed.tailoredResume || content, {
+        baseResume: resumeBody(),
+      });
+      if (includeCover) {
+        const body =
+          parsed.coverLetterBody ||
+          parsed.coverNote ||
+          buildLocalCoverBody({
+            job,
+            profile: state.profile,
+            workingResume: resumeBody(),
+            settings: state.settings,
+          });
+        $('#p-note', backdrop).value = formatPrepCover(body);
+      } else {
+        $('#p-note', backdrop).value = '';
+      }
+      $('#p-summary', backdrop).textContent =
+        (parsed.changesSummary || '') + ' · via Grok · cover letter formatted';
       state.usage = await getUsageSummary();
       toast('Grok prep ready', 'ok');
     } catch (err) {
@@ -2968,6 +3136,58 @@ async function prepareForJob(jobId) {
 
   backdrop.addEventListener('click', async (e) => {
     const t = e.target;
+    if (t?.id === 'p-pdf-cover') {
+      let note = $('#p-note', backdrop).value || '';
+      if (!note.trim()) {
+        toast('No cover letter yet', 'err');
+        return;
+      }
+      note = formatPrepCover(note);
+      $('#p-note', backdrop).value = note;
+      try {
+        const result = downloadCoverLetterPdf(note, {
+          title: job.title,
+          company: job.company,
+        });
+        toast(`Cover letter PDF — ${result.filename}`, 'ok');
+      } catch (err) {
+        toast(err.message || String(err), 'err');
+      }
+    }
+    if (t?.id === 'p-pdf') {
+      let resume = $('#p-resume', backdrop).value || '';
+      if (!resume.trim()) {
+        toast('Nothing to export yet', 'err');
+        return;
+      }
+      resume = polishAtsOutput(resume, { baseResume: resumeBody() });
+      $('#p-resume', backdrop).value = resume;
+      let note = $('#p-note', backdrop).value || '';
+      const includeCover = !!$('#p-pdf-incl-cover', backdrop)?.checked && !!note.trim();
+      if (includeCover) {
+        note = formatPrepCover(note);
+        $('#p-note', backdrop).value = note;
+      }
+      try {
+        const result = downloadResumePdf(resume, {
+          title: job.title,
+          company: job.company,
+          coverLetter: includeCover ? note : '',
+          includeCover,
+          job,
+          profile: state.profile,
+          settings: state.settings,
+          filename: atsPdfFilename({
+            company: job.company,
+            title: job.title,
+            kind: includeCover ? 'pack' : 'resume',
+          }),
+        });
+        toast(`PDF ready — ${result.filename}`, 'ok');
+      } catch (err) {
+        toast(err.message || String(err), 'err');
+      }
+    }
     if (t?.id === 'p-copy') {
       await navigator.clipboard.writeText($('#p-resume', backdrop).value || '');
       toast('Copied', 'ok');
@@ -3012,6 +3232,7 @@ async function prepareForJob(jobId) {
 function renderResumes(root, actions) {
   actions.innerHTML = `
     <button type="button" class="btn primary" id="r-upload">Upload resume (PDF)</button>
+    <button type="button" class="btn" id="r-fix" title="Normalize bullets, section blanks, and headings">Fix formatting</button>
     <button type="button" class="btn" id="r-diff">Master ↔ Working diff</button>
     <button type="button" class="btn" id="r-export">Export MD</button>
     <button type="button" class="btn" id="r-clone">Working ← Master</button>
@@ -3082,15 +3303,24 @@ function renderResumes(root, actions) {
   `;
   wireResumeUpload(root);
   $('#r-upload').onclick = () => $('#resume-file')?.click();
+  $('#r-fix')?.addEventListener('click', () => {
+    const m = $('#master-body');
+    const w = $('#working-body');
+    if (m) m.value = formatAtsPlainText(m.value);
+    if (w) w.value = formatAtsPlainText(w.value);
+    toast('Formatting cleaned — bullets, section blanks, headings. Save when ready.', 'ok');
+  });
   $('#save-master').onclick = async () => {
-    const body = $('#master-body').value;
+    const body = formatAtsPlainText($('#master-body').value);
+    $('#master-body').value = body;
     state.master = await saveResume('master', body);
     toast('Master saved', 'ok');
     await reloadAll();
   };
   $('#save-working').onclick = async () => {
     const before = state.working?.body || '';
-    const body = $('#working-body').value;
+    const body = formatAtsPlainText($('#working-body').value);
+    $('#working-body').value = body;
     if (body !== before) {
       const reason = prompt('What changed / why? (optional history note)', 'Manual edit') || 'Manual edit';
       await addResumeHistory({
@@ -3574,11 +3804,16 @@ function renderProfile(root, actions) {
   root.innerHTML = `
     <p class="muted" style="margin-top:0">Targeting signals for match scoring. Prefer <strong>Resumes → Upload PDF</strong> so Grok fills these from your CV; edit anything here afterward.</p>
     <div class="grid-2">
-      <div class="field"><label>Your name</label><input id="pf-name" value="${esc(p.name || '')}" /></div>
+      <div class="field"><label>Your name</label><input id="pf-name" value="${esc(p.name || '')}" placeholder="Frank Daniel Czito" /></div>
       <div class="field"><label>Remote only</label>
         <select id="pf-remote"><option value="yes" ${p.remoteOnly !== false ? 'selected' : ''}>Yes</option><option value="no" ${p.remoteOnly === false ? 'selected' : ''}>No</option></select>
       </div>
     </div>
+    <div class="grid-2">
+      <div class="field"><label>Email <span class="dim">(cover letter contact)</span></label><input id="pf-email" type="email" value="${esc(p.email || '')}" placeholder="you@example.com" /></div>
+      <div class="field"><label>Phone</label><input id="pf-phone" value="${esc(p.phone || '')}" placeholder="+36 …" /></div>
+    </div>
+    <div class="field"><label>Website / portfolio</label><input id="pf-web" value="${esc(p.website || 'https://otterly.global')}" placeholder="https://otterly.global" /></div>
     <div class="grid-2">
       <div class="field"><label>Salary floor (USD / month)</label><input id="pf-floor" type="number" value="${esc(p.salaryFloorUsd ?? 2000)}" /></div>
       <div class="field"><label>Salary ceiling (USD / month)</label><input id="pf-ceil" type="number" value="${esc(p.salaryCeilingUsd ?? 3500)}" /></div>
@@ -3602,6 +3837,9 @@ function renderProfile(root, actions) {
         .filter(Boolean);
     state.profile = await setProfile({
       name: $('#pf-name').value.trim(),
+      email: $('#pf-email').value.trim(),
+      phone: $('#pf-phone').value.trim(),
+      website: $('#pf-web').value.trim() || 'https://otterly.global',
       remoteOnly: $('#pf-remote').value === 'yes',
       salaryFloorUsd: Number($('#pf-floor').value) || 2000,
       salaryCeilingUsd: Number($('#pf-ceil').value) || 3500,
@@ -3659,6 +3897,46 @@ function renderSettings(root, actions) {
       </div>
       <div class="row-actions" style="margin-top:0.65rem">
         <button type="button" class="btn" id="s-wizard">Replay guided setup</button>
+      </div>
+    </div>
+
+    <div class="card" style="max-width:40rem;margin-top:1rem">
+      <h3>Cover letter</h3>
+      <p class="muted" style="margin-top:0">
+        Simple professional letters for ATS PDFs. Default shape:
+        <em>Dear …, / body / Warm Regards, / name / contact</em> — no heavy address block.
+        Grok writes the body; Bootstraps applies these wrappers.
+      </p>
+      <div class="field"><label>Greeting template</label>
+        <input id="s-cover-greet" value="${esc(s.coverGreeting || 'Dear {company},')}" placeholder="Dear {company}," />
+        <p class="dim" style="margin:0.25rem 0 0">Tokens: <code>{company}</code> <code>{title}</code> <code>{name}</code></p>
+      </div>
+      <div class="field"><label>If no company name</label>
+        <input id="s-cover-greet-fb" value="${esc(s.coverGreetingFallback || 'Dear Hiring Manager,')}" />
+      </div>
+      <div class="field"><label>Sign-off</label>
+        <input id="s-cover-signoff" value="${esc(s.coverSignOff || 'Warm Regards,')}" placeholder="Warm Regards," />
+      </div>
+      <div class="field"><label>Signature name <span class="dim">(blank = Profile name)</span></label>
+        <input id="s-cover-sig" value="${esc(s.coverSignatureName || '')}" placeholder="Frank Daniel Czito" />
+      </div>
+      <div class="field"><label>Contact line under signature <span class="dim">(blank = email · phone · portfolio)</span></label>
+        <input id="s-cover-contact" value="${esc(s.coverContact || '')}" placeholder="{email} · {phone} · {portfolio}" />
+      </div>
+      <div class="field"><label>Portfolio / site (for letter + Grok)</label>
+        <input id="s-cover-portfolio" value="${esc(s.coverPortfolio || 'https://otterly.global')}" />
+      </div>
+      <div class="field" style="margin-top:0.45rem">
+        <label class="check-inline"><input type="checkbox" id="s-cover-date" ${s.coverIncludeDate ? 'checked' : ''} /> Include date at top</label>
+      </div>
+      <div class="field" style="margin-top:0.35rem">
+        <label class="check-inline"><input type="checkbox" id="s-cover-addr-on" ${s.coverIncludeAddress ? 'checked' : ''} /> Include address block (optional)</label>
+      </div>
+      <div class="field"><label>Address block <span class="dim">(only if enabled above)</span></label>
+        <textarea id="s-cover-addr" rows="3" placeholder="Street&#10;City, Country">${esc(s.coverAddress || '')}</textarea>
+      </div>
+      <div class="field" style="margin-top:0.45rem">
+        <label class="check-inline"><input type="checkbox" id="s-cover-pdf-def" ${s.coverPdfDefault !== false ? 'checked' : ''} /> Default: include cover letter page(s) in ATS PDF</label>
       </div>
     </div>
 
@@ -3846,6 +4124,18 @@ function renderSettings(root, actions) {
       supportGithubSponsors: $('#s-gh').value.trim(),
       supportKofi: $('#s-kofi').value.trim(),
       supportNote: $('#s-support-note').value.trim(),
+      coverGreeting: $('#s-cover-greet')?.value.trim() || 'Dear {company},',
+      coverGreetingFallback: $('#s-cover-greet-fb')?.value.trim() || 'Dear Hiring Manager,',
+      coverSignOff: $('#s-cover-signoff')?.value.trim() || 'Warm Regards,',
+      coverSignatureName: $('#s-cover-sig')?.value.trim() || '',
+      coverContact: $('#s-cover-contact')?.value.trim() || '',
+      coverPortfolio: $('#s-cover-portfolio')?.value.trim() || 'https://otterly.global',
+      coverIncludeDate: !!$('#s-cover-date')?.checked,
+      coverIncludeAddress: !!$('#s-cover-addr-on')?.checked,
+      coverAddress: $('#s-cover-addr')?.value || '',
+      coverPdfDefault: !!$('#s-cover-pdf-def')?.checked,
+      coverSeparatePage: true,
+      coverStyle: 'simple',
     });
     applyTheme(state.settings.theme);
     toast('Settings saved', 'ok');

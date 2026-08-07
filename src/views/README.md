@@ -10,6 +10,7 @@ Presentation is modularized under `src/ui/` and composed from `src/app.js`.
 | `src/ui/climb-timeline.js` | Weekly sparklines + resume evolution |
 | `src/ui/command-palette.js` | ⌘K command palette |
 | `src/ui/print-pack.js` | Printable ATS application pack |
+| `src/lib/pdf-resume.js` | One-click ATS resume PDF (job-site upload) |
 | `src/ui/discover-progress.js` | Per-source hunt progress |
 | `src/ui/session-mode.js` | Ambient session focus mode |
 | `src/lib/a11y.js` | Focus trap / dialog wiring |
