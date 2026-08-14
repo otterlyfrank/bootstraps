@@ -9,7 +9,7 @@
  * - Cover letter: separate page(s), generous letter spacing, simple signature
  */
 
-import { formatAtsPlainText } from './resume-format.js';
+import { formatAtsPlainText, isJobHeaderLine, isSectionHeading } from './resume-format.js';
 import { formatCoverLetter, resolveCoverSettings } from './cover-letter.js';
 
 /** Visual system (points). Tuned for US Letter + ATS parsers. */
@@ -162,7 +162,7 @@ function wrapLine(line, fontSize, maxWidth) {
 }
 
 const PDF_SECTION_RE =
-  /^(summary|profile|professional summary|objective|skills|technical skills|core competencies|core skills|experience|work experience|professional experience|employment|employment history|education|projects|selected projects|certifications|certificates|awards|publications|languages|interests|volunteer|tools|technologies|tech stack|cover letter|cover note)\b[\s:]*$/i;
+  /^(summary|profile|professional summary|objective|highlights|career highlights|skills|technical skills|core competencies|core skills|experience|work experience|work history|professional experience|relevant experience|employment|employment history|education|projects|selected projects|certifications|certificates|awards|publications|languages|interests|volunteer|tools|technologies|tech stack|cover letter|cover note|accomplishments|key achievements)\b[\s:&]*$/i;
 
 /**
  * @param {string} line
@@ -203,6 +203,7 @@ function classifyResumeLine(line, ctx = {}) {
   if (
     /^#{1,3}\s+\S/.test(t) ||
     PDF_SECTION_RE.test(t) ||
+    isSectionHeading(t) ||
     (t.length <= 48 &&
       !t.endsWith('.') &&
       !t.includes('@') &&
@@ -224,34 +225,42 @@ function classifyResumeLine(line, ctx = {}) {
     };
   }
 
-  if (
-    ctx.headerZone ||
+  const digitCount = (t.match(/\d/g) || []).length;
+  const looksPhone = digitCount >= 9 && /(\+?\d[\d\s().-]{7,}\d)/.test(t);
+  const looksContact =
     /@/.test(t) ||
-    /(\+?\d[\d\s().-]{7,}\d)/.test(t) ||
-    /linkedin\.com|github\.com|otterly\.global|portfolio/i.test(t) ||
-    (t.includes('·') && t.length < 100) ||
-    (t.includes('|') && t.length < 100 && !/\d{4}/.test(t))
-  ) {
-    const isContact =
-      /@/.test(t) ||
-      /(\+?\d[\d\s().-]{7,}\d)/.test(t) ||
-      /linkedin\.com|github\.com|otterly\.global|portfolio|https?:/i.test(t) ||
-      (t.includes('·') && t.length < 100) ||
-      (t.includes('|') && t.length < 100 && !/\b(19|20)\d{2}\b/.test(t));
-    if (isContact || ctx.headerZone) {
-      return {
-        kind: isContact ? 'contact' : 'headline',
-        text: t,
-        size: isContact ? DESIGN.contactSize : DESIGN.headlineSize,
-        bold: !isContact,
-        gapBefore: 0,
-        gapAfter: isContact ? 1.5 : 2.5,
-        indent: 0,
-        hang: 0,
-        align: 'center',
-        ruleAfter: false,
-      };
-    }
+    looksPhone ||
+    /linkedin\.com|github\.com|otterly\.global|portfolio|https?:/i.test(t);
+  const sepNoDate =
+    ((t.includes('·') || t.includes('|')) && t.length < 100 && !/\b((19|20)\d{2}|present)\b/i.test(t));
+  if (looksContact || (ctx.headerZone && sepNoDate && !isJobHeaderLine(t))) {
+    return {
+      kind: looksContact ? 'contact' : 'headline',
+      text: t,
+      size: looksContact ? DESIGN.contactSize : DESIGN.headlineSize,
+      bold: !looksContact,
+      gapBefore: 0,
+      gapAfter: looksContact ? 1.5 : 2.5,
+      indent: 0,
+      hang: 0,
+      align: 'center',
+      ruleAfter: false,
+    };
+  }
+
+  if (ctx.headerZone && t.length <= 70 && !t.endsWith('.') && !isJobHeaderLine(t) && !/^[-*•]/.test(t)) {
+    return {
+      kind: 'headline',
+      text: t,
+      size: DESIGN.headlineSize,
+      bold: true,
+      gapBefore: 0,
+      gapAfter: 2.5,
+      indent: 0,
+      hang: 0,
+      align: 'center',
+      ruleAfter: false,
+    };
   }
 
   if (/^[-*•]\s+/.test(t) || /^\d+[.)]\s+/.test(t)) {
@@ -270,7 +279,7 @@ function classifyResumeLine(line, ctx = {}) {
     };
   }
 
-  if (/\b(19|20)\d{2}\b/.test(t) && t.length <= 110 && !t.startsWith('-')) {
+  if (isJobHeaderLine(t)) {
     return {
       kind: 'job',
       text: t,

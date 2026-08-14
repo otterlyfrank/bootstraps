@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.15.0 — 2026-08-14
+
+### ATS resume formatting that actually reads as a resume
+
+- Broader section headings (Work History, Highlights, Achievements…)
+- Job headers detected by title + dates / separators — summary sentences with a year no longer become bold “jobs”
+- Contact lines in the header stay centered; role lines with `|` and dates stay left as jobs
+- Stuck headings, mid-line `•` bullets, and missing blanks before a new role are cleaned on Fix formatting / save / ingest
+- **Preview ATS PDF** and **Download Working PDF** on the Resumes desk (you should not have to hunt for the file)
+- Live word / page estimate under each editor
+- Tests cover the new heading and job-header cases
+
 ## 1.14.0 — 2026-08-07
 
 ### Cover letter + polished ATS PDF

@@ -4,7 +4,7 @@
  */
 
 const SECTION_RE =
-  /^(summary|profile|professional summary|objective|skills|technical skills|core competencies|core skills|experience|work experience|professional experience|employment|employment history|education|academic background|projects|selected projects|certifications|certificates|licenses|awards|publications|languages|interests|volunteer|volunteering|affiliations|references|tools|technologies|tech stack|about|contact)\b[\s:]*$/i;
+  /^(summary|profile|professional summary|objective|highlights|career highlights|skills|technical skills|core competencies|core skills|competencies|expertise|technical expertise|qualifications|experience|work experience|work history|professional experience|relevant experience|selected experience|additional experience|employment|employment history|professional background|career history|education|academic background|projects|selected projects|key projects|certifications|certificates|licenses|awards|honors|publications|languages|interests|hobbies|volunteer|volunteering|affiliations|memberships|references|tools|technologies|tech stack|about|contact|accomplishments|key achievements|selected achievements|community|activities|patents|speaking|military)\b[\s:&]*$/i;
 
 const BULLET_LEAD_RE = /^(?:[•●○◦▪▫◆◇■□►▸‣·∙]|\-|\*|–|—)\s+/;
 const NUMBERED_LEAD_RE = /^(\d{1,2})[.)]\s+/;
@@ -31,21 +31,36 @@ export function normalizeBulletLine(line) {
  * @param {string} line
  */
 export function isSectionHeading(line) {
-  const t = String(line || '').trim();
-  if (!t || t.length > 48) return false;
-  if (/@/.test(t) || /\d{4}/.test(t)) return false;
+  const t = String(line || '').trim().replace(/:+$/, '');
+  if (!t || t.length > 52) return false;
+  if (/@/.test(t) || /\b(19|20)\d{2}\b/.test(t)) return false;
   if (SECTION_RE.test(t)) return true;
   // ALL CAPS short headings (EXPERIENCE, WORK HISTORY)
   if (/^[A-Z][A-Z0-9 &/\-]{1,40}$/.test(t) && /[A-Z]{3,}/.test(t)) return true;
-  // Title Case single/multi word headers without trailing period
-  if (
-    !t.endsWith('.') &&
-    !t.endsWith(',') &&
-    /^[A-Z][A-Za-z0-9]+(?:\s+[A-Z][A-Za-z0-9/&-]+){0,4}$/.test(t) &&
-    SECTION_RE.test(t)
-  ) {
-    return true;
-  }
+  return false;
+}
+
+/**
+ * Role / employer / dates line — not a bullet, not a full sentence.
+ * @param {string} line
+ */
+export function isJobHeaderLine(line) {
+  const t = String(line || '').trim();
+  if (!t || t.length > 120) return false;
+  if (isSectionHeading(t)) return false;
+  if (/^[-*•]/.test(t) || /^\d+[.)]\s/.test(t)) return false;
+  if (/@/.test(t) || /^https?:/i.test(t)) return false;
+  // Full sentences with a year belong in summary / bullets, not headers
+  const words = t.split(/\s+/).length;
+  if (/[.!?]$/.test(t) && words > 8) return false;
+  if (words > 16) return false;
+
+  const hasDate = /\b((19|20)\d{2}|present|current)\b/i.test(t);
+  const hasSep = /\s[—–\-]\s|\s\|\s/.test(t) || /\(\s*((19|20)\d{2}|present)/i.test(t);
+  if (hasDate && hasSep) return true;
+  if (hasDate && !/[.!?]$/.test(t) && words <= 14) return true;
+  // Title — Company (no dates)
+  if (/^[A-Z].{1,55}\s[—–]\s[A-Z].{1,45}$/.test(t) && !/[.!?]$/.test(t)) return true;
   return false;
 }
 
@@ -78,6 +93,12 @@ export function rejoinBrokenLines(lines) {
     const curIsBullet = /^[-*•]/.test(curT) || /^\d+\./.test(curT);
     const curIsHeading = isSectionHeading(curT);
     const prevIsHeading = isSectionHeading(prevT);
+    const curIsJob = isJobHeaderLine(curT);
+    const prevIsJob = isJobHeaderLine(prevT);
+    if (curIsJob || prevIsJob) {
+      out.push(line);
+      continue;
+    }
 
     // Never glue contact / URL / phone lines into the previous line
     const curIsContact =
@@ -179,6 +200,89 @@ export function collapseBlankLines(lines) {
 }
 
 /**
+ * "EXPERIENCE Built things" or "SKILLS  SQL, Python" → two lines.
+ * @param {string[]} lines
+ */
+export function splitStuckHeadings(lines) {
+  const out = [];
+  for (const line of lines) {
+    const t = String(line || '');
+    const m = t.match(
+      /^((?:SUMMARY|PROFILE|OBJECTIVE|HIGHLIGHTS|SKILLS|EXPERIENCE|EDUCATION|PROJECTS|CERTIFICATIONS|AWARDS|LANGUAGES|INTERESTS|VOLUNTEER|TOOLS|TECHNOLOGIES)(?:\s+(?:SUMMARY|SKILLS|EXPERIENCE|HISTORY|BACKGROUND))?)\s{2,}(.+)$/i
+    );
+    if (m && isSectionHeading(m[1])) {
+      out.push(m[1].trim());
+      out.push(m[2].trim());
+      continue;
+    }
+    const colon = t.match(/^([A-Za-z][A-Za-z &/]{2,40}):\s+(.+)$/);
+    if (colon && isSectionHeading(colon[1]) && colon[2].length > 12) {
+      out.push(colon[1].trim());
+      out.push(colon[2].trim());
+      continue;
+    }
+    out.push(t);
+  }
+  return out;
+}
+
+/**
+ * Mid-line • glyphs that are really bullets (not skill separators).
+ * @param {string[]} lines
+ */
+export function splitInlineBullets(lines) {
+  const out = [];
+  for (const line of lines) {
+    const t = String(line || '');
+    if (isSectionHeading(t) || isJobHeaderLine(t) || /@/.test(t)) {
+      out.push(t);
+      continue;
+    }
+    if (!/\s[•●]\s/.test(t)) {
+      out.push(t);
+      continue;
+    }
+    const parts = t.split(/\s+[•●]\s+/).map((p) => p.trim()).filter(Boolean);
+    if (parts.length < 2 || parts.some((p) => p.length < 12)) {
+      out.push(t);
+      continue;
+    }
+    for (const p of parts) {
+      out.push(p.startsWith('-') || /^\d+[.)]/.test(p) ? p : `- ${p}`);
+    }
+  }
+  return out;
+}
+
+/**
+ * Blank line before a new job header (except right after a section title).
+ * @param {string[]} lines
+ */
+export function ensureJobSpacing(lines) {
+  const out = [];
+  for (const line of lines) {
+    const t = String(line || '').trim();
+    if (t && isJobHeaderLine(t) && out.length) {
+      const prev = out[out.length - 1].trim();
+      if (prev && !isSectionHeading(prev) && prev !== '') out.push('');
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+/**
+ * Rough ATS page count (US Letter, ~50 lines / page after wrap).
+ * @param {string} text
+ */
+export function estimateResumePages(text) {
+  const lines = String(text || '')
+    .split('\n')
+    .reduce((n, line) => n + Math.max(1, Math.ceil((line.length || 1) / 92)), 0);
+  return Math.max(1, Math.ceil(lines / 48));
+}
+
+/**
  * Fix common PDF extract artifacts into clean ATS plain text.
  * Use after extractPdfText / extractDocxText and before save/Grok.
  * @param {string} text
@@ -203,9 +307,12 @@ export function normalizeExtractedResume(text) {
   // Drop form-feed / page debris lines
   lines = lines.filter((l) => !/^[\f\v]+$/.test(l));
 
+  lines = splitStuckHeadings(lines);
+  lines = splitInlineBullets(lines);
   lines = rejoinBrokenLines(lines);
   lines = lines.map((l) => normalizeBulletLine(l));
   lines = ensureSectionSpacing(lines);
+  lines = ensureJobSpacing(lines);
   lines = collapseBlankLines(lines);
 
   return lines.join('\n').trim();
