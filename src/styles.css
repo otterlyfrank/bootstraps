@@ -1110,6 +1110,26 @@ select {
   margin-top: 1rem;
 }
 
+.resume-stats {
+  margin: 0.4rem 0 0;
+  font-size: 0.78rem;
+}
+
+.ats-preview {
+  margin: 0;
+  max-height: min(58vh, 32rem);
+  overflow: auto;
+  padding: 0.85rem 1rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  tab-size: 2;
+}
+
 .empty {
   text-align: center;
   padding: 2.5rem 1rem;

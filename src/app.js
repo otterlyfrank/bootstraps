@@ -99,7 +99,12 @@ import {
   downloadCoverLetterPdf,
   atsPdfFilename,
 } from './lib/pdf-resume.js';
-import { formatAtsPlainText, polishAtsOutput, looksLikePrepPack } from './lib/resume-format.js';
+import {
+  formatAtsPlainText,
+  polishAtsOutput,
+  looksLikePrepPack,
+  estimateResumePages,
+} from './lib/resume-format.js';
 import {
   formatCoverLetter,
   extractCoverBody,
@@ -3229,10 +3234,55 @@ async function prepareForJob(jobId) {
 
 // ── Resumes ────────────────────────────────────────────────
 
+function openAtsPreview(text) {
+  const formatted = formatAtsPlainText(text);
+  const pages = estimateResumePages(formatted);
+  const host = document.createElement('div');
+  host.className = 'modal-backdrop';
+  host.innerHTML = `
+    <div class="modal wide" role="dialog" aria-labelledby="ats-preview-title">
+      <h2 id="ats-preview-title">ATS preview</h2>
+      <p class="dim" style="margin-top:0">This is the parseable text — same structure as the PDF. About <strong>${pages}</strong> page${pages === 1 ? '' : 's'}.</p>
+      <pre class="ats-preview" tabindex="0">${esc(formatted)}</pre>
+      <div class="modal-actions">
+        <button type="button" class="btn primary" id="pv-dl">Download PDF</button>
+        <button type="button" class="btn" id="pv-close">Close</button>
+      </div>
+    </div>`;
+  document.body.appendChild(host);
+  const close = () => host.remove();
+  host.addEventListener('click', (e) => {
+    if (e.target === host) close();
+  });
+  $('#pv-close', host).onclick = close;
+  $('#pv-dl', host).onclick = () => {
+    try {
+      downloadResumePdf(formatted, {
+        title: state.profile?.name || 'Resume',
+        filename: atsPdfFilename({ title: state.profile?.name || 'Resume' }),
+      });
+      toast('ATS PDF downloaded', 'ok');
+    } catch (err) {
+      toast(err.message || 'PDF failed', 'err');
+    }
+  };
+  window.addEventListener(
+    'keydown',
+    function onEsc(e) {
+      if (e.key === 'Escape') {
+        close();
+        window.removeEventListener('keydown', onEsc);
+      }
+    }
+  );
+}
+
 function renderResumes(root, actions) {
   actions.innerHTML = `
     <button type="button" class="btn primary" id="r-upload">Upload resume (PDF)</button>
     <button type="button" class="btn" id="r-fix" title="Normalize bullets, section blanks, and headings">Fix formatting</button>
+    <button type="button" class="btn" id="r-preview-pdf" title="See how the ATS PDF will look">Preview ATS PDF</button>
+    <button type="button" class="btn" id="r-pdf-working" title="Download Working resume as ATS PDF">Download Working PDF</button>
     <button type="button" class="btn" id="r-diff">Master ↔ Working diff</button>
     <button type="button" class="btn" id="r-export">Export MD</button>
     <button type="button" class="btn" id="r-clone">Working ← Master</button>
@@ -3272,6 +3322,7 @@ function renderResumes(root, actions) {
         </header>
         <div class="body">
           <textarea class="resume-editor" id="master-body" placeholder="Upload a PDF or paste your clean base resume…">${esc(state.master?.body || '')}</textarea>
+          <p class="resume-stats dim" id="master-stats"></p>
         </div>
       </div>
       <div class="resume-panel working">
@@ -3281,6 +3332,7 @@ function renderResumes(root, actions) {
         </header>
         <div class="body">
           <textarea class="resume-editor" id="working-body" placeholder="Living resume used for matching & prep…">${esc(state.working?.body || '')}</textarea>
+          <p class="resume-stats dim" id="working-stats"></p>
         </div>
       </div>
     </div>
@@ -3303,12 +3355,59 @@ function renderResumes(root, actions) {
   `;
   wireResumeUpload(root);
   $('#r-upload').onclick = () => $('#resume-file')?.click();
+  const refreshResumeStats = () => {
+    const fill = (id, text) => {
+      const el = $(id);
+      if (!el) return;
+      const body = String(text || '').trim();
+      if (!body) {
+        el.textContent = 'Empty';
+        return;
+      }
+      const words = (body.match(/\b\w+\b/g) || []).length;
+      const pages = estimateResumePages(body);
+      el.textContent = `${words.toLocaleString()} words · ~${pages} ATS page${pages === 1 ? '' : 's'}`;
+    };
+    fill('#master-stats', $('#master-body')?.value);
+    fill('#working-stats', $('#working-body')?.value);
+  };
+  refreshResumeStats();
+  $('#master-body')?.addEventListener('input', refreshResumeStats);
+  $('#working-body')?.addEventListener('input', refreshResumeStats);
+
   $('#r-fix')?.addEventListener('click', () => {
     const m = $('#master-body');
     const w = $('#working-body');
     if (m) m.value = formatAtsPlainText(m.value);
     if (w) w.value = formatAtsPlainText(w.value);
-    toast('Formatting cleaned — bullets, section blanks, headings. Save when ready.', 'ok');
+    refreshResumeStats();
+    toast('Formatting cleaned — bullets, section blanks, job headers. Save when ready.', 'ok');
+  });
+  $('#r-pdf-working')?.addEventListener('click', () => {
+    const body = formatAtsPlainText($('#working-body')?.value || state.working?.body || '');
+    if (!body) {
+      toast('Working resume is empty', 'err');
+      return;
+    }
+    try {
+      downloadResumePdf(body, {
+        title: state.profile?.name || 'Resume',
+        filename: atsPdfFilename({ title: state.profile?.name || 'Working-Resume' }),
+      });
+      toast('ATS PDF downloaded — upload this file, not a screenshot.', 'ok');
+    } catch (err) {
+      toast(err.message || 'PDF failed', 'err');
+    }
+  });
+  $('#r-preview-pdf')?.addEventListener('click', () => {
+    const body = formatAtsPlainText(
+      $('#working-body')?.value || state.working?.body || $('#master-body')?.value || ''
+    );
+    if (!body) {
+      toast('Nothing to preview', 'err');
+      return;
+    }
+    openAtsPreview(body);
   });
   $('#save-master').onclick = async () => {
     const body = formatAtsPlainText($('#master-body').value);

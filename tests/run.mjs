@@ -204,6 +204,17 @@ console.log('resume-format');
   ok(normalizeBulletLine('• Built dashboards') === '- Built dashboards', 'bullet normalize');
   ok(isSectionHeading('EXPERIENCE'), 'section heading caps');
   ok(isSectionHeading('Skills'), 'section heading title');
+  ok(isSectionHeading('Work History'), 'work history heading');
+  ok(isSectionHeading('Key Achievements'), 'achievements heading');
+
+  const { isJobHeaderLine, estimateResumePages } = await import('../src/lib/resume-format.js');
+  ok(isJobHeaderLine('Senior Analyst — Acme Corp (2020–2024)'), 'job header with dates');
+  ok(isJobHeaderLine('Acme Corp | Remote | 2021 - Present'), 'job header pipes + present');
+  ok(
+    !isJobHeaderLine('Led the 2020 migration of reporting dashboards for three product teams.'),
+    'summary sentence with year is not a job header'
+  );
+  ok(estimateResumePages('Name\nemail@x.com\n\nSUMMARY\nHello') >= 1, 'page estimate');
 
   const messy = `Alex Rivera
 alex@x.com
@@ -348,6 +359,21 @@ Hello`);
   ok(nameLine.x > 54, `name centered-ish (x=${nameLine.x})`);
   const heading = laid.pages[0].find((l) => l.text === 'SUMMARY');
   ok(heading && heading.bold && heading.size >= 12, 'section heading bold large');
+
+  const classified = layoutResumePages(`Jane Doe
+jane@x.com
+
+SUMMARY
+Led the 2020 migration of reporting dashboards for three product teams.
+
+EXPERIENCE
+Analyst — Acme (2020-2024)
+- Built things`);
+  const ops = classified.pages[0];
+  const jobOp = ops.find((l) => l.text && l.text.includes('Analyst'));
+  const sumOp = ops.find((l) => l.text && l.text.includes('migration'));
+  ok(jobOp && jobOp.bold, 'role line is a job header');
+  ok(sumOp && !sumOp.bold, 'summary sentence with a year is not a job header');
 
   const pack = buildApplicationPdf(
     `Alex Rivera

@@ -1,5 +1,5 @@
 /* Bootstraps service worker — shell cache for installability + offline reopen */
-const CACHE = 'bootstraps-shell-v10';
+const CACHE = 'bootstraps-shell-v11';
 
 const PRECACHE = [
   './',
