@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.15.1 — 2026-08-14
+
+### UX: one next action
+
+- Resumes and ATS toolbars: **Upload / Download PDF** up front; the rest under **More**
+- Empty job shelf has **Hunt from resume** instead of a paragraph of options
+- `/` focuses search; `?` still lists keys
+- Home no longer puts “Sample data” next to a live hunt
+
 ## 1.15.0 — 2026-08-14
 
 ### ATS resume formatting that actually reads as a resume
