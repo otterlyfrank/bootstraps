@@ -1136,6 +1136,14 @@ select {
   color: var(--muted);
 }
 
+.empty-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
 .empty h3 {
   font-family: var(--serif);
   color: var(--text);

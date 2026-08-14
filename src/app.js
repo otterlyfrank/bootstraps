@@ -307,9 +307,19 @@ function onGlobalKeydown(e) {
     const on = toggleSessionMode();
     toast(on ? 'Session mode on' : 'Session mode off', 'ok');
     render();
-  } else if (k === '?' || k === '/') {
+  } else if (k === '/') {
     e.preventDefault();
-    toast('⌘K palette · H hunt · T ATS · U upload · J jobs · A pipeline · D home · S session · R refresh', 'ok');
+    const search = $('#job-q') || $('#q') || document.querySelector('input.search');
+    if (search) {
+      search.focus();
+      search.select?.();
+    } else {
+      goView('jobs');
+      requestAnimationFrame(() => $('#job-q')?.focus());
+    }
+  } else if (k === '?') {
+    e.preventDefault();
+    toast('⌘K palette · / search · H hunt · T ATS · U upload · J jobs · A pipeline · D home · S session · R refresh', 'ok');
   }
 }
 
@@ -897,10 +907,11 @@ function renderDashboard(root, actions) {
   };
   const onboard = onboardingSteps();
 
-  actions.innerHTML = `
-    ${lastHunt ? `<button type="button" class="btn primary" id="d-refresh-hunt">Refresh hunt</button>` : ''}
-    <button type="button" class="btn" id="d-sample">Sample data</button>
-  `;
+  actions.innerHTML = lastHunt
+    ? `<button type="button" class="btn primary" id="d-refresh-hunt">Refresh hunt</button>`
+    : hasJobs
+      ? `<button type="button" class="btn primary" id="loop-hunt-top">Hunt</button>`
+      : `<button type="button" class="btn" id="d-sample">Load sample</button>`;
 
   if (!onboard.complete && !hasJobs) {
     root.innerHTML = `
@@ -959,6 +970,11 @@ function renderDashboard(root, actions) {
     });
     $('#d-refresh-hunt')?.addEventListener('click', () => refreshLastHunt());
     $('#d-sample')?.addEventListener('click', () => $('#onboard-sample')?.click());
+    $('#loop-hunt-top')?.addEventListener('click', () => {
+      state.view = 'jobs';
+      render();
+      requestAnimationFrame(() => $('#j-discover')?.click());
+    });
     return;
   }
 
@@ -1089,6 +1105,11 @@ function renderDashboard(root, actions) {
   `;
 
   $('#d-refresh-hunt')?.addEventListener('click', () => refreshLastHunt());
+  $('#loop-hunt-top')?.addEventListener('click', () => {
+    state.view = 'jobs';
+    render();
+    requestAnimationFrame(() => $('#j-discover')?.click());
+  });
   $('#d-sample')?.addEventListener('click', async () => {
     try {
       await loadSamplePack();
@@ -1211,21 +1232,33 @@ function renderJobs(root, actions) {
       <label class="filter-inline check-inline" title="Only roles that mention English / angol requirement (or EN-written JDs on HU boards)">
         <input type="checkbox" id="job-require-en" ${requireEn ? 'checked' : ''} /> English required
       </label>
-      <input class="search" id="job-q" placeholder="Filter…" value="${esc(state.jobQ)}" />
+      <input class="search" id="job-q" placeholder="Search title or company…" value="${esc(state.jobQ)}" aria-label="Search jobs" />
       <span class="dim">${totalJobs} shown${totalJobs > JOBS_PER_PAGE ? ` · page ${state.jobPage + 1}/${totalPages}` : ''}</span>
     </div>
     <div class="job-list">
       ${
         pageJobs.length
           ? pageJobs.map((j) => jobCardHtml(j)).join('')
-          : `<div class="empty"><h3>Nothing on this shelf</h3>
-             <p>${
-               state.jobShelf === 'shortlist'
-                 ? 'Star jobs with ☆ to shortlist them.'
-                 : state.jobShelf === 'worth'
-                   ? 'No unapplied roles above the score floor. Run <strong>Hunt from resume</strong>, lower min score, or open <strong>All scored</strong>.'
-                   : 'Run <strong>Hunt from resume</strong> or paste links to populate the board.'
-             }</p></div>`
+          : `<div class="empty">
+               <h3>${
+                 state.jobShelf === 'shortlist'
+                   ? 'Nothing shortlisted'
+                   : state.jobQ
+                     ? 'No roles match'
+                     : 'Nothing on this shelf'
+               }</h3>
+               <p>${
+                 state.jobShelf === 'shortlist'
+                   ? 'Star a role on the board to keep it here.'
+                   : state.jobShelf === 'worth'
+                     ? 'No unapplied roles above your score floor.'
+                     : 'Hunt from your resume, or paste job links.'
+               }</p>
+               <p class="empty-actions">
+                 <button type="button" class="btn primary" id="empty-hunt">Hunt from resume</button>
+                 ${state.jobShelf === 'worth' ? `<button type="button" class="btn" id="empty-all">Show all scored</button>` : ''}
+               </p>
+             </div>`
       }
     </div>
     ${
@@ -1252,7 +1285,7 @@ function renderJobs(root, actions) {
     render();
   });
   $('#j-refresh')?.addEventListener('click', () => refreshLastHunt());
-  $('#j-discover').onclick = () => {
+  const openHunt = () => {
     const panel = $('#discovery-panel');
     if (panel) {
       panel.hidden = false;
@@ -1262,6 +1295,13 @@ function renderJobs(root, actions) {
       });
     }
   };
+  $('#j-discover').onclick = openHunt;
+  $('#empty-hunt')?.addEventListener('click', openHunt);
+  $('#empty-all')?.addEventListener('click', () => {
+    state.jobShelf = 'all';
+    state.jobPage = 0;
+    render();
+  });
   $('#j-manual').onclick = () => openManualJob();
   $('#j-bulk').onclick = () => openBulkImport();
   $('#j-links').onclick = () => openPasteLinks();
@@ -2610,11 +2650,18 @@ function renderAts(root, actions) {
         </div>
         <div class="row-actions" style="flex-wrap:wrap;gap:0.5rem">
           <button type="button" class="btn primary" id="ats-pdf" title="Resume PDF; optionally with cover letter page(s)">Download PDF</button>
-          <button type="button" class="btn" id="ats-pdf-cover-only" title="Cover letter only, separate PDF">Cover letter PDF</button>
-          <button type="button" class="btn" id="ats-copy">Copy resume</button>
-          <button type="button" class="btn" id="ats-export">Export MD</button>
-          <button type="button" class="btn" id="ats-print" title="Printable paper preview">Application pack</button>
           <button type="button" class="btn" id="ats-save">Save to Pipeline</button>
+          <div class="topbar-more">
+            <details>
+              <summary class="btn">More</summary>
+              <div class="topbar-menu">
+                <button type="button" class="btn ghost" id="ats-copy">Copy resume</button>
+                <button type="button" class="btn ghost" id="ats-pdf-cover-only" title="Cover letter only">Cover letter PDF</button>
+                <button type="button" class="btn ghost" id="ats-export">Export Markdown</button>
+                <button type="button" class="btn ghost" id="ats-print" title="Printable paper preview">Printable pack</button>
+              </div>
+            </details>
+          </div>
         </div>
         <label class="check-inline" style="margin-top:0.55rem">
           <input type="checkbox" id="ats-pdf-cover" ${state.settings?.coverPdfDefault !== false ? 'checked' : ''} /> Include cover letter as separate page(s) in PDF
@@ -3279,13 +3326,20 @@ function openAtsPreview(text) {
 
 function renderResumes(root, actions) {
   actions.innerHTML = `
-    <button type="button" class="btn primary" id="r-upload">Upload resume (PDF)</button>
-    <button type="button" class="btn" id="r-fix" title="Normalize bullets, section blanks, and headings">Fix formatting</button>
-    <button type="button" class="btn" id="r-preview-pdf" title="See how the ATS PDF will look">Preview ATS PDF</button>
-    <button type="button" class="btn" id="r-pdf-working" title="Download Working resume as ATS PDF">Download Working PDF</button>
-    <button type="button" class="btn" id="r-diff">Master ↔ Working diff</button>
-    <button type="button" class="btn" id="r-export">Export MD</button>
-    <button type="button" class="btn" id="r-clone">Working ← Master</button>
+    <button type="button" class="btn primary" id="r-upload">Upload</button>
+    <button type="button" class="btn" id="r-pdf-working" title="Download Working resume as ATS PDF">Download PDF</button>
+    <div class="topbar-more">
+      <details>
+        <summary class="btn">More</summary>
+        <div class="topbar-menu">
+          <button type="button" class="btn ghost" id="r-fix" title="Normalize bullets, section blanks, and headings">Fix formatting</button>
+          <button type="button" class="btn ghost" id="r-preview-pdf" title="See how the ATS PDF will look">Preview ATS</button>
+          <button type="button" class="btn ghost" id="r-diff">Master ↔ Working</button>
+          <button type="button" class="btn ghost" id="r-export">Export Markdown</button>
+          <button type="button" class="btn ghost" id="r-clone">Reset Working from Master</button>
+        </div>
+      </details>
+    </div>
   `;
   root.innerHTML = `
     <p class="muted" style="margin-top:0">
