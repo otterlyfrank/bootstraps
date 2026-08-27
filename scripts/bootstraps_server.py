@@ -23,6 +23,7 @@ import ipaddress
 import json
 import re
 import socket
+import subprocess
 import sys
 import traceback
 import urllib.error
@@ -35,6 +36,33 @@ from pathlib import Path
 from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def app_version_info() -> dict:
+    version = ""
+    pkg = ROOT / "package.json"
+    if pkg.is_file():
+        try:
+            version = str(json.loads(pkg.read_text(encoding="utf-8")).get("version") or "")
+        except Exception:
+            version = ""
+    git = ""
+    try:
+        git = (
+            subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=ROOT,
+                timeout=1.5,
+                stderr=subprocess.DEVNULL,
+            )
+            .decode("ascii", "replace")
+            .strip()
+        )
+    except Exception:
+        git = ""
+    return {"ok": True, "name": "bootstraps", "version": version, "git": git}
+
+
 DATA_DIR = ROOT / "data"
 CUSTOM_SOURCES_PATH = DATA_DIR / "custom_sources.json"
 CUSTOM_SOURCES_EXAMPLE = DATA_DIR / "custom_sources.example.json"
@@ -2084,6 +2112,10 @@ class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
+    def end_headers(self) -> None:
+        self.send_header("Cache-Control", "no-store, max-age=0")
+        super().end_headers()
+
     def log_message(self, fmt: str, *args: Any) -> None:
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
@@ -2132,8 +2164,12 @@ class Handler(SimpleHTTPRequestHandler):
             return
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+        if path in ("/api/version",):
+            self._json(200, app_version_info())
+            return
         if path == "/health":
             catalog = merged_source_catalog()
+            ver = app_version_info()
             self._json(
                 200,
                 {
@@ -2143,6 +2179,8 @@ class Handler(SimpleHTTPRequestHandler):
                     "discover": True,
                     "customSources": True,
                     "sources": [s["id"] for s in catalog],
+                    "version": ver.get("version") or "",
+                    "git": ver.get("git") or "",
                 },
             )
             return

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.2 — 2026-08-27
+
+### Installed app actually updates
+
+GitHub commits now reach the Dock/PWA: `Cache-Control: no-store`, service worker checks on focus and reloads, sidebar shows `v… · git`. Run `start.sh` or the suite `update-apps.sh` to pull + restart.
+
 ## 1.15.1 — 2026-08-14
 
 ### UX: one next action

@@ -65,7 +65,7 @@ import {
 } from './lib/export.js';
 import { loadSamplePack } from './lib/sample.js';
 import { lineDiff, diffStats } from './lib/diff.js';
-import { installUiHtml, wireInstallButtons } from './pwa.js';
+import { installUiHtml, wireInstallButtons, paintAppVersion } from './pwa.js';
 import {
   filterJobs,
   dealBreakerHits,
@@ -628,6 +628,7 @@ function updateShellChrome() {
   }
   const pwaSlot = $('.pwa-side-slot', rootEl);
   if (pwaSlot) pwaSlot.innerHTML = installUiHtml('compact');
+  paintAppVersion();
 }
 
 function buildShell() {
@@ -655,6 +656,7 @@ function buildShell() {
       </details>
       <div class="sidebar-foot">
         <p>Local-first · optional Grok</p>
+        <p class="dim" data-app-version style="margin:0.2rem 0 0;font-size:0.78rem"></p>
         <p class="usage-chip" id="shell-usage" style="display:inline-block;margin-top:0.35rem">
           AI ~${formatUsd(state.usage.estCostUsd)} · ${state.usage.totalTokens || 0} tok
         </p>

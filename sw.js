@@ -1,5 +1,5 @@
 /* Bootstraps service worker — shell cache for installability + offline reopen */
-const CACHE = 'bootstraps-shell-v12';
+const CACHE = 'bootstraps-shell-v13';
 
 const PRECACHE = [
   './',
@@ -89,7 +89,7 @@ self.addEventListener('fetch', (event) => {
 async function networkFirst(req) {
   const cache = await caches.open(CACHE);
   try {
-    const fresh = await fetch(req);
+    const fresh = await fetch(req, { cache: 'no-store' });
     if (fresh && fresh.ok) {
       cache.put(req, fresh.clone()).catch(() => {});
     }
