@@ -36,10 +36,9 @@ export function initPwa() {
 
   if ('serviceWorker' in navigator && !swRegistered) {
     swRegistered = true;
-    navigator.serviceWorker.register('./sw.js').catch((err) => {
-      console.warn('[Bootstraps] service worker registration failed', err);
-    });
+    registerFreshServiceWorker('./sw.js');
   }
+  paintAppVersion();
 }
 
 /** Trigger browser install UI when available. */
@@ -56,6 +55,58 @@ export async function promptInstall() {
 }
 
 const INSTALL_ICON = `<svg class="pwa-install-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 3v10.2l3.6-3.6L17 11l-5 5-5-5 1.4-1.4L11 13.2V3h1zm-7 14h14v2H5v-2z"/></svg>`;
+
+let versionLabel = '';
+let versionFetch = null;
+
+function registerFreshServiceWorker(url) {
+  if (!('serviceWorker' in navigator)) return;
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  navigator.serviceWorker
+    .register(url, { updateViaCache: 'none' })
+    .then((reg) => {
+      const ping = () => reg.update().catch(() => {});
+      ping();
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') ping();
+      });
+      window.addEventListener('focus', ping);
+    })
+    .catch((err) => console.warn('[Bootstraps] service worker registration failed', err));
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    location.reload();
+  });
+}
+
+export function paintAppVersion() {
+  const apply = () => {
+    if (!versionLabel) return;
+    document.querySelectorAll('[data-app-version]').forEach((el) => {
+      el.textContent = versionLabel;
+    });
+  };
+  apply();
+  if (versionLabel || versionFetch) return;
+  const take = (d) => {
+    const v = d && d.version;
+    versionLabel = [v && `v${String(v).replace(/^v/i, '')}`, d && d.git].filter(Boolean).join(' · ');
+    apply();
+  };
+  versionFetch = fetch('/api/version', { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then(take)
+    .catch(() =>
+      fetch('/health', { cache: 'no-store' })
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then(take)
+    )
+    .catch(() => {
+      versionFetch = null;
+    });
+}
 
 /**
  * Sidebar / settings markup for install state.
@@ -78,7 +129,7 @@ export function installUiHtml(mode = 'compact') {
     return `
       <div class="pwa-install-block installed">
         <span class="pwa-install-check" aria-hidden="true">✓</span>
-        <span>Installed · standalone</span>
+        <span>Installed · standalone · <span data-app-version></span></span>
       </div>`;
   }
 
@@ -180,4 +231,5 @@ export function wireInstallButtons(root = document) {
       }
     };
   });
+  paintAppVersion();
 }
